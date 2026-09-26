@@ -1,2 +1,4 @@
 .plan-filter{display:flex;align-items:center;gap:14px;flex-wrap:wrap}.plan-filter label{display:inline-flex;align-items:center;gap:5px;font-size:13px}.plan-filter input{accent-color:#315c42}.plan-filter+.muted{margin:12px 0 0}
 .calendar-plans{display:block;margin-top:5px;color:#315c42;font-size:11px;line-height:1.3;overflow-wrap:anywhere}
+.plan-filter-group{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;border:0;margin:0;padding:0}.plan-filter-group legend{float:left;font-weight:700;font-size:13px;margin-right:4px}.calendar-shared{color:#8a6a2f!important}.owner-badge{display:inline-block;background:#f6efe1;color:#7a5a20;border-radius:4px;padding:1px 6px;font-size:11px;font-weight:600;letter-spacing:0}.day-task.shared{border-left:3px solid #e2cfa6;padding-left:12px;background:#fdfbf6}.shared-row td{background:#fdfbf6}
+.plan-filter:has(.plan-filter-group){flex-direction:column;align-items:flex-start;gap:10px}

@@ -155,6 +155,63 @@ class MultiUserTest(unittest.TestCase):
             self.assertIn("75%", page)
             self.assertIn("Còn 1/4 giờ", page)
 
+    def test_shared_plans_appear_read_only_on_schedule_with_filter(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = self.make_app(directory)
+            client = app.test_client()
+            self.login(client, "admin", "admin-password")
+            for username in ("bob", "alice", "charlie"):
+                client.post("/admin/users", data={
+                    "username": username, "password": f"{username}-password", "role": "user"})
+            client.post("/logout")
+
+            self.login(client, "bob", "bob-password")
+            client.post("/courses", data={"name": "Đại số của Bob", "estimated_hours": "0"})
+            client.post("/plans", data={"name": "Lịch của Bob", "priority": "1"})
+            with app.app_context():
+                db = get_db()
+                bob = db.execute("SELECT id FROM users WHERE username='bob'").fetchone()[0]
+                course_id = db.execute(
+                    "SELECT id FROM courses WHERE owner_user_id=?", (bob,)).fetchone()[0]
+                plan_id = db.execute(
+                    "SELECT id FROM study_plans WHERE owner_user_id=?", (bob,)).fetchone()[0]
+                lecture_id = db.execute("""INSERT INTO lectures
+                    (course_id, lecture_number, title, estimated_hours, remaining_hours)
+                    VALUES (?, 1, 'Ma trận', 2, 2)""", (course_id,)).lastrowid
+                db.commit()
+            client.post(f"/plans/{plan_id}/courses", data={"course_id": course_id})
+            client.post(f"/plans/{plan_id}/share", data={"username": "alice"})
+            client.post("/logout")
+
+            complete_action = f"/lectures/{lecture_id}/complete"
+            self.login(client, "alice", "alice-password")
+            page = client.get("/schedule").get_data(as_text=True)
+            self.assertIn("Lịch của Bob · @bob", page)
+            self.assertIn("@bob · chỉ xem", page)
+            self.assertIn("Ma trận", page)
+            self.assertNotIn(complete_action, page)
+            self.assertIn("+2 giờ được chia sẻ", page)
+            filtered = client.get("/schedule?filter=1").get_data(as_text=True)
+            self.assertNotIn("Ma trận", filtered)
+            client.post("/logout")
+
+            self.login(client, "charlie", "charlie-password")
+            self.assertNotIn("Lịch của Bob", client.get("/schedule").get_data(as_text=True))
+            self.assertEqual(client.get(f"/schedule?filter=1&plan_id={plan_id}").status_code, 400)
+            client.post("/logout")
+
+            self.login(client, "admin", "admin-password")
+            page = client.get("/schedule").get_data(as_text=True)
+            self.assertIn("Người dùng khác (quản trị)", page)
+            self.assertNotIn("Ma trận", page)
+            page = client.get(f"/schedule?filter=1&plan_id={plan_id}").get_data(as_text=True)
+            self.assertIn("Ma trận", page)
+            self.assertNotIn(complete_action, page)
+            client.post("/logout")
+
+            self.login(client, "bob", "bob-password")
+            self.assertIn(complete_action, client.get("/schedule").get_data(as_text=True))
+
     def test_user_can_change_own_password(self):
         with tempfile.TemporaryDirectory() as directory:
             app = self.make_app(directory)

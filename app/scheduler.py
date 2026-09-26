@@ -362,18 +362,31 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
     return new_deadlines
 
 
-def day_plan(day, plan_ids=None):
+def day_plan(day, plan_ids=None, include_others=False):
+    """Allocations for `day`, limited to `plan_ids` when given.
+
+    By default only the signed-in user's own courses are returned. With
+    `include_others`, allocations of other users' courses in `plan_ids` are
+    included too; the caller must have checked that those plans are visible.
+    """
+    if include_others and plan_ids is None:
+        raise ValueError("include_others requires an explicit list of visible plans")
+    user_id = current_user_id()
     query = """SELECT a.*, c.display_name AS course_name, l.lecture_number,
         l.title, l.content, l.deadline, l.status, l.completed_at,
         t.title AS part_title, t.kind AS part_kind, t.content AS part_content,
         t.deadline AS part_deadline, t.status AS part_status,
-        t.completed_at AS part_completed_at
+        t.completed_at AS part_completed_at,
+        c.owner_user_id, u.username AS owner_name, (c.owner_user_id != ?) AS is_shared
         FROM schedule_allocations a JOIN courses c ON c.id=a.course_id
+        JOIN users u ON u.id=c.owner_user_id
         LEFT JOIN lectures l ON l.id=a.lecture_id
         LEFT JOIN lecture_tasks t ON t.id=a.task_id
         WHERE a.study_date=?"""
-    query += " AND c.owner_user_id=?"
-    params = [day.isoformat(), current_user_id()]
+    params = [user_id, day.isoformat()]
+    if not include_others:
+        query += " AND c.owner_user_id=?"
+        params.append(user_id)
     if plan_ids is not None:
         if not plan_ids:
             return []
@@ -382,5 +395,5 @@ def day_plan(day, plan_ids=None):
             JOIN study_plans p ON p.id=pc.plan_id WHERE pc.course_id=a.course_id
             AND p.status='Đang hoạt động' AND pc.plan_id IN ({placeholders}))"""
         params.extend(plan_ids)
-    query += " ORDER BY a.id"
+    query += " ORDER BY is_shared, u.username, a.id"
     return get_db().execute(query, params).fetchall()

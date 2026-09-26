@@ -90,6 +90,33 @@ def required_row(table, row_id):
     return row
 
 
+def visible_plans(user_id):
+    """Plans the user may see on the schedule, tagged by group.
+
+    `mine`: owned plans; `shared`: shared with the user; `others`: every other
+    plan, admins only. Other people's plans are always read-only.
+    """
+    is_admin = g.user is not None and g.user["role"] == "admin"
+    plans = []
+    for row in get_db().execute("""SELECT p.*, u.username AS owner_name,
+        EXISTS (SELECT 1 FROM plan_shares ps WHERE ps.plan_id=p.id AND ps.user_id=?) AS is_shared
+        FROM study_plans p JOIN users u ON u.id=p.owner_user_id
+        ORDER BY p.owner_user_id != ?, u.username, p.priority, p.id""", (user_id, user_id)):
+        plan = dict(row)
+        if plan["owner_user_id"] == user_id:
+            plan["group"] = "mine"
+        elif plan["is_shared"]:
+            plan["group"] = "shared"
+        elif is_admin:
+            plan["group"] = "others"
+        else:
+            continue
+        plan["label"] = (plan["name"] if plan["group"] == "mine"
+                         else f"{plan['name']} · @{plan['owner_name']}")
+        plans.append(plan)
+    return plans
+
+
 def backup_database(label):
     db = get_db()
     if getattr(db, "is_remote", False):
@@ -260,47 +287,54 @@ def schedule():
     month_start = selected.replace(day=1)
     month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
     user_id = current_user_id()
-    plans = [dict(row) for row in db.execute(
-        "SELECT * FROM study_plans WHERE owner_user_id=? ORDER BY priority, id", (user_id,))]
+    plans = visible_plans(user_id)
+    plan_by_id = {plan["id"]: plan for plan in plans}
     if request.args.get("filter") == "1":
         try:
             selected_ids = [int(value) for value in request.args.getlist("plan_id")]
         except ValueError:
             abort(400)
-        valid = {plan["id"] for plan in plans}
-        if any(plan_id not in valid for plan_id in selected_ids):
+        if any(plan_id not in plan_by_id for plan_id in selected_ids):
             abort(400)
     else:
-        selected_ids = [plan["id"] for plan in plans if plan["status"] == "Đang hoạt động"]
+        selected_ids = [plan["id"] for plan in plans
+                        if plan["status"] == "Đang hoạt động" and plan["group"] != "others"]
     selected_ids = list(dict.fromkeys(selected_ids))
     selected_course_ids = set()
-    if selected_ids:
-        placeholders = ",".join("?" for _ in selected_ids)
-        selected_course_ids = {row["course_id"] for row in db.execute(
-            f"""SELECT DISTINCT pc.course_id FROM plan_courses pc
-            JOIN study_plans p ON p.id=pc.plan_id WHERE p.status='Đang hoạt động'
-            AND pc.plan_id IN ({placeholders})""", selected_ids)}
     plan_labels = {}
     if selected_ids:
-        for row in db.execute(f"""SELECT pc.course_id, p.name FROM plan_courses pc
+        placeholders = ",".join("?" for _ in selected_ids)
+        for row in db.execute(f"""SELECT pc.course_id, p.id FROM plan_courses pc
             JOIN study_plans p ON p.id=pc.plan_id WHERE p.status='Đang hoạt động'
             AND p.id IN ({placeholders}) ORDER BY p.priority, p.id""", selected_ids):
-            plan_labels.setdefault(row["course_id"], []).append(row["name"])
+            selected_course_ids.add(row["course_id"])
+            plan_labels.setdefault(row["course_id"], []).append(plan_by_id[row["id"]]["label"])
+    own_course_ids = {row["id"] for row in db.execute(
+        "SELECT id FROM courses WHERE owner_user_id=?", (user_id,))}
     rows = db.execute("""SELECT study_date, course_id, hours FROM schedule_allocations
         WHERE study_date BETWEEN ? AND ?""", (month_start.isoformat(), month_end.isoformat()))
     day_summaries = {}
     for row in rows:
         if row["course_id"] not in selected_course_ids:
             continue
-        item = day_summaries.setdefault(row["study_date"], {"hours": 0, "course_ids": set()})
-        item["hours"] += row["hours"]
+        item = day_summaries.setdefault(row["study_date"], {
+            "hours": 0, "shared_hours": 0, "course_ids": set()})
+        item["hours" if row["course_id"] in own_course_ids else "shared_hours"] += row["hours"]
         item["course_ids"].add(row["course_id"])
     for item in day_summaries.values():
         course_ids = item.pop("course_ids")
-        item["courses"] = len(course_ids)
+        item["courses"] = len(course_ids & own_course_ids)
         item["plans"] = list(dict.fromkeys(
             name for course_id in sorted(course_ids)
             for name in plan_labels.get(course_id, [])))
+    owner_names = {plan["owner_user_id"]: plan["owner_name"] for plan in plans}
+    shared_courses = [
+        dict(course, owner_name=owner_names[owner_id])
+        for owner_id in dict.fromkeys(plan_by_id[plan_id]["owner_user_id"]
+                                      for plan_id in selected_ids)
+        if owner_id != user_id
+        for course in courses_with_progress(owner_id)
+        if course["id"] in selected_course_ids]
     calendar_weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(selected.year, selected.month)
     courses = [course for course in courses_with_progress()
                if course["id"] in selected_course_ids]
@@ -330,12 +364,16 @@ def schedule():
     pending = [item for item in pending_missed()
                if item["course_id"] in selected_course_ids]
     today_tasks = day_plan(today, selected_ids)
+    day_tasks = day_plan(selected, selected_ids, include_others=True)
     return render_template("schedule.html", selected=selected, today=today,
                            month_start=month_start, calendar_weeks=calendar_weeks,
                            prev_month=month_start-timedelta(days=1),
                            next_month=month_end+timedelta(days=1),
                            day_summaries=day_summaries,
-                           day_tasks=day_plan(selected, selected_ids),
+                           day_tasks=day_tasks,
+                           own_day_hours=sum(item["hours"] for item in day_tasks
+                                             if not item["is_shared"]),
+                           shared_courses=shared_courses,
                            capacity=capacity_on(selected), courses=courses,
                            projections=projections, missing=missing, all_done=all_done,
                            pending=pending, today_tasks=today_tasks,

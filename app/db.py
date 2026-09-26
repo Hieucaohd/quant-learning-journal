@@ -538,10 +538,11 @@ def migrate_plans():
 def migrate_plan_name_scope():
     """Plan names were globally unique; make them unique per owner instead.
 
-    SQLite cannot drop a column constraint, so the table is rebuilt. Foreign keys
-    must be off while the old table is dropped, otherwise ON DELETE CASCADE would
-    wipe plan_courses and plan_shares. The caller must have committed first:
-    PRAGMA foreign_keys is ignored inside an open transaction.
+    SQLite cannot drop a column constraint, so the table is rebuilt. Dropping the
+    old table would cascade into plan_courses and plan_shares, so foreign keys are
+    turned off; because a remote libSQL connection may not honour that pragma, the
+    child rows are also copied aside and restored in the same transaction. The
+    caller must have committed first: the pragma is ignored inside a transaction.
     """
     db = get_db()
     table_sql = db.execute("""SELECT sql FROM sqlite_master
@@ -566,8 +567,16 @@ def migrate_plan_name_scope():
                 (id, name, description, status, priority, created_at, owner_user_id)
                 SELECT id, name, description, status, priority, created_at, owner_user_id
                 FROM study_plans;
+            CREATE TABLE plan_courses_keep AS SELECT plan_id, course_id, position FROM plan_courses;
+            CREATE TABLE plan_shares_keep AS SELECT plan_id, user_id, shared_at FROM plan_shares;
             DROP TABLE study_plans;
             ALTER TABLE study_plans_new RENAME TO study_plans;
+            INSERT OR IGNORE INTO plan_courses (plan_id, course_id, position)
+                SELECT plan_id, course_id, position FROM plan_courses_keep;
+            INSERT OR IGNORE INTO plan_shares (plan_id, user_id, shared_at)
+                SELECT plan_id, user_id, shared_at FROM plan_shares_keep;
+            DROP TABLE plan_courses_keep;
+            DROP TABLE plan_shares_keep;
             COMMIT;
         """)
     finally:
