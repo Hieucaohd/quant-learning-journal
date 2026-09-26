@@ -4,11 +4,14 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
+load_dotenv(PROJECT_ROOT / ".env", override=False)
 
-from app import create_app
+from app import create_app, turso_credentials_from_env
 from app.db import get_db
 
 
@@ -36,6 +39,16 @@ def columns(connection, table):
     return [row["name"] for row in connection.execute(f"PRAGMA table_info({table})")]
 
 
+def sql_literal(value):
+    if value is None:
+        return "NULL"
+    if isinstance(value, bytes):
+        return f"X'{value.hex()}'"
+    if isinstance(value, (int, float)):
+        return repr(value)
+    return "'" + str(value).replace("'", "''") + "'"
+
+
 def main():
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -47,8 +60,7 @@ def main():
     source_path = Path(args.source).resolve()
     if not source_path.is_file():
         raise SystemExit(f"Không tìm thấy SQLite: {source_path}")
-    url = os.environ.get("TURSO_DATABASE_URL", "")
-    token = os.environ.get("TURSO_AUTH_TOKEN", "")
+    url, token = turso_credentials_from_env()
     if not url or not token:
         raise SystemExit("Hãy đặt TURSO_DATABASE_URL và TURSO_AUTH_TOKEN trước khi chạy.")
 
@@ -67,9 +79,8 @@ def main():
                 if target.execute("SELECT COUNT(*) FROM courses").fetchone()[0]:
                     raise SystemExit("Turso đã có khóa học. Script dừng để tránh ghi đè dữ liệu.")
 
-                for table in reversed(TABLES):
-                    target.execute(f"DELETE FROM {table}")
-
+                statements = ["BEGIN"]
+                statements.extend(f"DELETE FROM {table}" for table in reversed(TABLES))
                 copied = {}
                 for table in TABLES:
                     source_columns = [row["name"] for row in source.execute(
@@ -81,13 +92,14 @@ def main():
                         continue
                     rows = source.execute(
                         f"SELECT {', '.join(selected)} FROM {table}").fetchall()
-                    placeholders = ", ".join("?" for _ in selected)
-                    sql = (f"INSERT INTO {table} ({', '.join(selected)}) "
-                           f"VALUES ({placeholders})")
+                    column_sql = ", ".join(selected)
                     for row in rows:
-                        target.execute(sql, tuple(row[name] for name in selected))
+                        value_sql = ", ".join(sql_literal(row[name]) for name in selected)
+                        statements.append(
+                            f"INSERT INTO {table} ({column_sql}) VALUES ({value_sql})")
                     copied[table] = len(rows)
-                target.commit()
+                statements.append("COMMIT")
+                target.executescript(";\n".join(statements) + ";")
             except BaseException:
                 target.rollback()
                 raise

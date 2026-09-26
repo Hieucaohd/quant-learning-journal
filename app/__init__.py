@@ -4,20 +4,48 @@ from hmac import compare_digest
 from pathlib import Path
 
 from flask import Flask, Response, request
+from dotenv import load_dotenv
+
+
+def turso_credentials_from_env():
+    direct = (os.environ.get("TURSO_DATABASE_URL", ""),
+              os.environ.get("TURSO_AUTH_TOKEN", ""))
+    if all(direct):
+        return direct
+
+    url_suffix = "TURSO_DATABASE_URL"
+    candidates = []
+    for name, url in os.environ.items():
+        if not name.endswith(url_suffix) or name == url_suffix or not url:
+            continue
+        prefix = name[:-len(url_suffix)]
+        token = os.environ.get(f"{prefix}TURSO_AUTH_TOKEN", "")
+        if token:
+            candidates.append((url, token))
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        raise RuntimeError(
+            "Có nhiều cặp biến Turso có tiền tố. Hãy đặt TURSO_DATABASE_URL và "
+            "TURSO_AUTH_TOKEN để chọn database cần dùng.")
+    return direct
 
 
 def create_app(test_config=None):
     app = Flask(__name__)
     source_root = Path(__file__).resolve().parent.parent
+    load_dotenv(source_root / ".env", override=False)
     on_vercel = bool(os.environ.get("VERCEL"))
+    turso_url, turso_token = turso_credentials_from_env()
     data_root = (Path(sys.executable).resolve().parent
                  if getattr(sys, "frozen", False) else source_root)
     app.config.update(
         DATABASE=str(data_root / "data" / "journal.sqlite3"),
         EXPORT_DIR=str(Path("/tmp/exports") if on_vercel else data_root / "exports"),
         BACKUP_DIR=str(Path("/tmp/backups") if on_vercel else data_root / "database" / "backups"),
-        TURSO_DATABASE_URL=os.environ.get("TURSO_DATABASE_URL", ""),
-        TURSO_AUTH_TOKEN=os.environ.get("TURSO_AUTH_TOKEN", ""),
+        TURSO_DATABASE_URL=turso_url,
+        TURSO_AUTH_TOKEN=turso_token,
+        AUTO_MIGRATE_DATABASE=not on_vercel,
         APP_USERNAME=os.environ.get("APP_USERNAME", "quant"),
         APP_PASSWORD=os.environ.get("APP_PASSWORD", ""),
         SECRET_KEY=os.environ.get("JOURNAL_SECRET_KEY", "local-only-journal-key"),
@@ -25,8 +53,16 @@ def create_app(test_config=None):
     )
     if test_config:
         app.config.update(test_config)
+        # Tests that explicitly select a local SQLite file must not inherit the
+        # developer's real Turso credentials from .env. Integration tests can
+        # still opt in by passing TURSO_DATABASE_URL in test_config.
+        if "DATABASE" in test_config and "TURSO_DATABASE_URL" not in test_config:
+            app.config["TURSO_DATABASE_URL"] = ""
+            app.config["TURSO_AUTH_TOKEN"] = ""
     if on_vercel and not app.config["TURSO_DATABASE_URL"]:
-        raise RuntimeError("Thiếu TURSO_DATABASE_URL trên Vercel; SQLite local không lưu bền vững.")
+        raise RuntimeError("Không tìm thấy cặp biến Turso trên Vercel; SQLite local không lưu bền vững.")
+    if on_vercel and not app.config["TURSO_AUTH_TOKEN"]:
+        raise RuntimeError("Thiếu token xác thực cho Turso trên Vercel.")
     if on_vercel and not app.config["APP_PASSWORD"]:
         raise RuntimeError("Thiếu APP_PASSWORD trên Vercel; ứng dụng không được triển khai công khai.")
 

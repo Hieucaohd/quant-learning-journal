@@ -289,14 +289,11 @@ def close_db(_error=None):
 
 def init_app(app):
     app.teardown_appcontext(close_db)
+    if not app.config.get("AUTO_MIGRATE_DATABASE", True):
+        return
     with app.app_context():
         db = get_db()
-        if getattr(db, "is_remote", False):
-            for statement in SCHEMA.split(";"):
-                if statement.strip():
-                    db.execute(statement)
-        else:
-            db.executescript(SCHEMA)
+        db.executescript(SCHEMA)
         migrate_schedule()
         migrate_vietnamese()
         migrate_plans()

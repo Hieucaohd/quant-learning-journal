@@ -6,12 +6,21 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from app import create_app
+from app import create_app, turso_credentials_from_env
 from app.db import get_db
 from scripts.migrate_sqlite_to_turso import main as migrate_to_turso
 
 
 class VercelBackendTest(unittest.TestCase):
+    def test_prefixed_vercel_turso_variables_are_detected(self):
+        variables = {
+            "quant_learning_journal_TURSO_DATABASE_URL": "libsql://example.turso.io",
+            "quant_learning_journal_TURSO_AUTH_TOKEN": "prefixed-token",
+        }
+        with patch.dict(os.environ, variables, clear=True):
+            self.assertEqual(turso_credentials_from_env(),
+                             ("libsql://example.turso.io", "prefixed-token"))
+
     def test_libsql_backend_and_remote_deletion_backup(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "turso-compatible.db"

@@ -25,9 +25,11 @@ Trong Vercel Dashboard:
 2. Chọn **Storage** hoặc **Marketplace**.
 3. Cài **Turso Cloud** và tạo một database trống.
 4. Kết nối database với project.
-5. Kiểm tra project đã có hai biến:
-   - `TURSO_DATABASE_URL`
-   - `TURSO_AUTH_TOKEN`
+5. Kiểm tra project đã có hai biến Turso. Vercel có thể tự thêm tiền tố tên project, ví dụ:
+   - `quant_learning_journal_TURSO_DATABASE_URL`
+   - `quant_learning_journal_TURSO_AUTH_TOKEN`
+
+Ứng dụng tự nhận cặp biến có cùng tiền tố, vì vậy không cần tạo thêm bản sao không có tiền tố. Nếu project có nhiều Turso database, hãy tạo `TURSO_DATABASE_URL` và `TURSO_AUTH_TOKEN` để chọn rõ database cần dùng.
 
 Giữ hai giá trị này bí mật. Không ghi chúng vào Git.
 
@@ -40,7 +42,9 @@ Trên máy local, mở PowerShell trong thư mục dự án và cài thư viện
 pip install -r requirements.txt
 ```
 
-Lấy URL và token từ Vercel/Turso Dashboard rồi đặt tạm trong cửa sổ PowerShell hiện tại:
+Nếu đã lưu hai biến Turso trong file `.env` tại thư mục dự án, ứng dụng và script sẽ tự đọc file đó. Cả tên chuẩn lẫn tên có tiền tố do Vercel tạo đều được hỗ trợ. File `.env` đã nằm trong `.gitignore` và không được đưa lên Git.
+
+Nếu chưa có `.env`, lấy URL và token từ Vercel/Turso Dashboard rồi đặt tạm trong cửa sổ PowerShell hiện tại:
 
 ```powershell
 $env:TURSO_DATABASE_URL="libsql://..."
