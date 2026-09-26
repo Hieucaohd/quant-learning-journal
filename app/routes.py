@@ -8,10 +8,11 @@ from pathlib import Path
 from uuid import uuid4
 from zipfile import ZIP_DEFLATED, ZipFile
 
-from flask import (Blueprint, abort, current_app, flash, redirect, render_template,
+from flask import (Blueprint, abort, current_app, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-from .db import get_db, sync_lecture_hours
+from .auth import current_user_id
+from .db import enroll_catalog_course, get_db, sync_lecture_hours
 from .reports import build_export, courses_with_progress, period_summary, report_data, streak
 from .scheduler import (active_course_ids, capacity_on, course_deadlines, day_plan, ensure_plan,
                         pending_missed, replan)
@@ -65,7 +66,25 @@ def optional_score(value):
 
 
 def required_row(table, row_id):
-    row = get_db().execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
+    user_id = current_user_id()
+    if table == "courses":
+        row = get_db().execute("SELECT * FROM courses WHERE id=? AND owner_user_id=?",
+                               (row_id, user_id)).fetchone()
+    elif table == "study_plans":
+        row = get_db().execute("SELECT * FROM study_plans WHERE id=? AND owner_user_id=?",
+                               (row_id, user_id)).fetchone()
+    elif table == "lectures":
+        row = get_db().execute("""SELECT l.* FROM lectures l JOIN courses c ON c.id=l.course_id
+            WHERE l.id=? AND c.owner_user_id=?""", (row_id, user_id)).fetchone()
+    elif table == "lecture_tasks":
+        row = get_db().execute("""SELECT t.* FROM lecture_tasks t
+            JOIN lectures l ON l.id=t.lecture_id JOIN courses c ON c.id=l.course_id
+            WHERE t.id=? AND c.owner_user_id=?""", (row_id, user_id)).fetchone()
+    elif table == "journals":
+        row = get_db().execute("SELECT * FROM journals WHERE id=? AND user_id=?",
+                               (row_id, user_id)).fetchone()
+    else:
+        row = get_db().execute(f"SELECT * FROM {table} WHERE id = ?", (row_id,)).fetchone()
     if row is None:
         abort(404)
     return row
@@ -75,8 +94,8 @@ def backup_database(label):
     db = get_db()
     if getattr(db, "is_remote", False):
         payload = json.dumps(report_data(), ensure_ascii=False)
-        backup_id = db.execute("""INSERT INTO deletion_backups (label, payload_json)
-            VALUES (?, ?)""", (label, payload)).lastrowid
+        backup_id = db.execute("""INSERT INTO deletion_backups (label, payload_json, user_id)
+            VALUES (?, ?, ?)""", (label, payload, current_user_id())).lastrowid
         return Path(f"turso-backup-{backup_id}.json")
     backup_dir = Path(current_app.config["BACKUP_DIR"])
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -240,7 +259,9 @@ def schedule():
         abort(400)
     month_start = selected.replace(day=1)
     month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
-    plans = [dict(row) for row in db.execute("SELECT * FROM study_plans ORDER BY priority, id")]
+    user_id = current_user_id()
+    plans = [dict(row) for row in db.execute(
+        "SELECT * FROM study_plans WHERE owner_user_id=? ORDER BY priority, id", (user_id,))]
     if request.args.get("filter") == "1":
         try:
             selected_ids = [int(value) for value in request.args.getlist("plan_id")]
@@ -290,19 +311,21 @@ def schedule():
                        if c["status"] != "Hoàn thành" and c["id"] in projections]
     all_done = max(remaining_dates) if remaining_dates and not missing else None
     profiles = [dict(row) for row in db.execute(
-        "SELECT * FROM capacity_profiles ORDER BY effective_from DESC")]
+        "SELECT * FROM user_capacity_profiles WHERE user_id=? ORDER BY effective_from DESC",
+        (user_id,))]
     active_profile = next(row for row in profiles if row["effective_from"] <= today.isoformat())
     overrides = [dict(row) for row in db.execute(
-        "SELECT * FROM capacity_overrides WHERE study_date>=? ORDER BY study_date LIMIT 20",
-        (today.isoformat(),))]
-    events = [dict(row) for row in db.execute("""SELECT e.*, c.name AS course_name,
+        """SELECT * FROM user_capacity_overrides WHERE user_id=? AND study_date>=?
+        ORDER BY study_date LIMIT 20""", (user_id, today.isoformat()))]
+    events = [dict(row) for row in db.execute("""SELECT e.*, c.display_name AS course_name,
         l.lecture_number, t.title AS part_title FROM schedule_events e
         JOIN courses c ON c.id=e.course_id
         LEFT JOIN lectures l ON l.id=e.lecture_id
         LEFT JOIN lecture_tasks t ON t.id=e.task_id ORDER BY e.id DESC LIMIT 300""")
               if row["course_id"] in selected_course_ids][:30]
     capacity_events = [dict(row) for row in db.execute(
-        "SELECT * FROM capacity_events ORDER BY id DESC LIMIT 20")]
+        "SELECT * FROM user_capacity_events WHERE user_id=? ORDER BY id DESC LIMIT 20",
+        (user_id,))]
     pending = [item for item in pending_missed()
                if item["course_id"] in selected_course_ids]
     today_tasks = day_plan(today, selected_ids)
@@ -325,6 +348,7 @@ def schedule():
 @bp.post("/schedule/capacity")
 def capacity_profile():
     db = get_db()
+    user_id = current_user_id()
     try:
         effective = parse_date(request.form["effective_from"])
         if effective < date.today().isoformat():
@@ -333,17 +357,18 @@ def capacity_profile():
         if not reason:
             raise ValueError("Vui lòng ghi lý do thay đổi số giờ học")
         hours = [positive_hours(request.form.get(f"day_{i}"), True) for i in range(7)]
-        old = db.execute("SELECT * FROM capacity_profiles WHERE effective_from=?",
-                         (effective,)).fetchone()
+        old = db.execute("""SELECT * FROM user_capacity_profiles
+            WHERE user_id=? AND effective_from=?""", (user_id, effective)).fetchone()
         old_hours = old["hours_json"] if old else None
         encoded = json.dumps(hours)
-        db.execute("""INSERT INTO capacity_profiles (effective_from, hours_json, reason)
-            VALUES (?, ?, ?) ON CONFLICT(effective_from) DO UPDATE SET
+        db.execute("""INSERT INTO user_capacity_profiles (user_id, effective_from, hours_json, reason)
+            VALUES (?, ?, ?, ?) ON CONFLICT(user_id, effective_from) DO UPDATE SET
             hours_json=excluded.hours_json, reason=excluded.reason,
-            created_at=CURRENT_TIMESTAMP""", (effective, encoded, reason))
-        db.execute("""INSERT INTO capacity_events
-            (effective_date, old_hours, new_hours, reason, kind) VALUES (?, ?, ?, ?, 'lịch tuần')""",
-            (effective, old_hours, encoded, reason))
+            created_at=CURRENT_TIMESTAMP""", (user_id, effective, encoded, reason))
+        db.execute("""INSERT INTO user_capacity_events
+            (user_id, effective_date, old_hours, new_hours, reason, kind)
+            VALUES (?, ?, ?, ?, ?, 'lịch tuần')""",
+            (user_id, effective, old_hours, encoded, reason))
         replan(date.today(), f"Thay đổi số giờ học từ {effective}: {reason}")
         db.commit()
         flash("Đã cập nhật giờ học và tính lại các hạn hoàn thành.", "success")
@@ -356,6 +381,7 @@ def capacity_profile():
 @bp.post("/schedule/override")
 def capacity_override():
     db = get_db()
+    user_id = current_user_id()
     try:
         study_date = parse_date(request.form["study_date"])
         if study_date < date.today().isoformat():
@@ -364,15 +390,16 @@ def capacity_override():
         reason = request.form.get("reason", "").strip()
         if not reason:
             raise ValueError("Vui lòng ghi lý do thay đổi số giờ học")
-        old = db.execute("SELECT hours FROM capacity_overrides WHERE study_date=?",
-                         (study_date,)).fetchone()
-        db.execute("""INSERT INTO capacity_overrides (study_date, hours, reason)
-            VALUES (?, ?, ?) ON CONFLICT(study_date) DO UPDATE SET
+        old = db.execute("""SELECT hours FROM user_capacity_overrides
+            WHERE user_id=? AND study_date=?""", (user_id, study_date)).fetchone()
+        db.execute("""INSERT INTO user_capacity_overrides (user_id, study_date, hours, reason)
+            VALUES (?, ?, ?, ?) ON CONFLICT(user_id, study_date) DO UPDATE SET
             hours=excluded.hours, reason=excluded.reason, created_at=CURRENT_TIMESTAMP""",
-            (study_date, hours, reason))
-        db.execute("""INSERT INTO capacity_events
-            (effective_date, old_hours, new_hours, reason, kind) VALUES (?, ?, ?, ?, 'ngày riêng')""",
-            (study_date, str(old["hours"]) if old else None, str(hours), reason))
+            (user_id, study_date, hours, reason))
+        db.execute("""INSERT INTO user_capacity_events
+            (user_id, effective_date, old_hours, new_hours, reason, kind)
+            VALUES (?, ?, ?, ?, ?, 'ngày riêng')""",
+            (user_id, study_date, str(old["hours"]) if old else None, str(hours), reason))
         replan(date.today(), f"Đổi số giờ ngày {study_date}: {reason}")
         db.commit()
         flash("Đã cập nhật ngày học và tính lại các hạn hoàn thành.", "success")
@@ -530,6 +557,7 @@ def import_plan():
 @bp.route("/plans", methods=["GET", "POST"])
 def plans():
     db = get_db()
+    user_id = current_user_id()
     if request.method == "POST":
         try:
             name = request.form.get("name", "").strip()
@@ -538,9 +566,9 @@ def plans():
             priority = int(request.form.get("priority", "100"))
             if not 1 <= priority <= 1000:
                 raise ValueError("Độ ưu tiên phải từ 1 đến 1000")
-            db.execute("""INSERT INTO study_plans (name, description, priority)
-                VALUES (?, ?, ?)""", (name, request.form.get("description", "").strip(),
-                                      priority))
+            db.execute("""INSERT INTO study_plans (name, description, priority, owner_user_id)
+                VALUES (?, ?, ?, ?)""", (name, request.form.get("description", "").strip(),
+                                           priority, user_id))
             db.commit()
             flash("Đã tạo kế hoạch học.", "success")
             return redirect(url_for("main.plans"))
@@ -550,8 +578,13 @@ def plans():
                 exc, sqlite3.IntegrityError) else str(exc), "error")
     rows = [dict(row) for row in db.execute("""SELECT p.*, COUNT(pc.course_id) AS course_count
         FROM study_plans p LEFT JOIN plan_courses pc ON pc.plan_id=p.id
-        GROUP BY p.id ORDER BY p.priority, p.id""")]
-    return render_template("plans.html", plans=rows)
+        WHERE p.owner_user_id=? GROUP BY p.id ORDER BY p.priority, p.id""", (user_id,))]
+    shared = db.execute("""SELECT p.*, u.username AS owner_name,
+        (SELECT COUNT(*) FROM plan_courses pc WHERE pc.plan_id=p.id) AS course_count
+        FROM plan_shares ps JOIN study_plans p ON p.id=ps.plan_id
+        JOIN users u ON u.id=p.owner_user_id WHERE ps.user_id=?
+        ORDER BY u.username, p.priority, p.id""", (user_id,)).fetchall()
+    return render_template("plans.html", plans=rows, shared_plans=shared)
 
 
 @bp.route("/plans/<int:plan_id>", methods=["GET", "POST"])
@@ -579,11 +612,63 @@ def plan_detail(plan_id):
     members = [dict(row) for row in db.execute("""SELECT c.*, pc.position FROM plan_courses pc
         JOIN courses c ON c.id=pc.course_id WHERE pc.plan_id=? ORDER BY pc.position, c.id""",
         (plan_id,))]
-    available = [dict(row) for row in db.execute("""SELECT c.* FROM courses c WHERE NOT EXISTS
+    available = [dict(row) for row in db.execute("""SELECT c.* FROM courses c
+        WHERE c.owner_user_id=? AND NOT EXISTS
         (SELECT 1 FROM plan_courses pc WHERE pc.plan_id=? AND pc.course_id=c.id)
-        ORDER BY c.id""", (plan_id,))]
+        ORDER BY c.id""", (current_user_id(), plan_id))]
+    shared_with = db.execute("""SELECT u.id, u.username, u.display_name FROM plan_shares ps
+        JOIN users u ON u.id=ps.user_id WHERE ps.plan_id=? ORDER BY u.username""",
+        (plan_id,)).fetchall()
     return render_template("plan_detail.html", plan=plan, members=members,
-                           available=available, projections=course_deadlines())
+                           available=available, projections=course_deadlines(),
+                           shared_with=shared_with)
+
+
+@bp.post("/plans/<int:plan_id>/share")
+def share_plan(plan_id):
+    plan = required_row("study_plans", plan_id)
+    username = request.form.get("username", "").strip()
+    target = get_db().execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    if target is None:
+        flash("Không tìm thấy người dùng này.", "error")
+    elif target["id"] == current_user_id():
+        flash("Bạn đã là chủ sở hữu kế hoạch.", "error")
+    else:
+        get_db().execute("INSERT OR IGNORE INTO plan_shares (plan_id, user_id) VALUES (?, ?)",
+                         (plan_id, target["id"]))
+        get_db().commit()
+        flash(f"Đã chia sẻ kế hoạch với {target['username']} ở chế độ chỉ xem.", "success")
+    return redirect(url_for("main.plan_detail", plan_id=plan["id"]))
+
+
+@bp.post("/plans/<int:plan_id>/shares/<int:user_id>/remove")
+def remove_plan_share(plan_id, user_id):
+    required_row("study_plans", plan_id)
+    get_db().execute("DELETE FROM plan_shares WHERE plan_id=? AND user_id=?",
+                     (plan_id, user_id))
+    get_db().commit()
+    flash("Đã thu hồi quyền xem kế hoạch.", "success")
+    return redirect(url_for("main.plan_detail", plan_id=plan_id))
+
+
+@bp.get("/shared/plans/<int:plan_id>")
+def shared_plan(plan_id):
+    db = get_db()
+    plan = db.execute("""SELECT p.*, u.username AS owner_name FROM study_plans p
+        JOIN users u ON u.id=p.owner_user_id WHERE p.id=?""", (plan_id,)).fetchone()
+    if plan is None:
+        abort(404)
+    allowed = (plan["owner_user_id"] == current_user_id() or g.user["role"] == "admin" or
+               db.execute("SELECT 1 FROM plan_shares WHERE plan_id=? AND user_id=?",
+                          (plan_id, current_user_id())).fetchone())
+    if not allowed:
+        abort(403)
+    members = db.execute("""SELECT c.*, pc.position, COUNT(l.id) AS lecture_count,
+        SUM(CASE WHEN l.status='Hoàn thành' THEN 1 ELSE 0 END) AS completed_count
+        FROM plan_courses pc JOIN courses c ON c.id=pc.course_id
+        LEFT JOIN lectures l ON l.course_id=c.id WHERE pc.plan_id=?
+        GROUP BY c.id, pc.position ORDER BY pc.position, c.id""", (plan_id,)).fetchall()
+    return render_template("shared_plan.html", plan=plan, members=members)
 
 
 @bp.post("/plans/<int:plan_id>/courses")
@@ -830,18 +915,24 @@ def miss_task(task_id):
 @bp.route("/courses", methods=["GET", "POST"])
 def courses():
     db = get_db()
+    user_id = current_user_id()
     if request.method == "POST":
         try:
             name = request.form["name"].strip()
             if not name:
                 raise ValueError("Vui lòng nhập tên khóa học")
             start = parse_date(request.form.get("start_date", ""), True)
-            db.execute("""INSERT INTO courses
-                (name, description, start_date, target_date, status, progress, notes, estimated_hours)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (name, request.form.get("description", "").strip(), start, None,
-                 "Chưa bắt đầu", 0, request.form.get("notes", "").strip(),
-                 workload_hours(request.form.get("estimated_hours", "0"))))
+            description = request.form.get("description", "").strip()
+            db.execute("""INSERT OR IGNORE INTO course_catalogs
+                (name, description, created_by) VALUES (?, ?, ?)""",
+                (name, description, user_id))
+            catalog = db.execute("SELECT id FROM course_catalogs WHERE name=?", (name,)).fetchone()
+            course_id = enroll_catalog_course(user_id, catalog["id"])
+            db.execute("""UPDATE courses SET start_date=?, notes=?, estimated_hours=?,
+                description=?, display_name=? WHERE id=?""",
+                (start, request.form.get("notes", "").strip(),
+                 workload_hours(request.form.get("estimated_hours", "0")),
+                 description, name, course_id))
             refresh_schedule("Thêm khóa học")
             db.commit()
             flash("Đã thêm khóa học.", "success")
@@ -854,10 +945,27 @@ def courses():
             flash("Tên khóa học này đã tồn tại.", "error")
     memberships = {}
     for row in db.execute("""SELECT pc.course_id, p.name FROM plan_courses pc
-        JOIN study_plans p ON p.id=pc.plan_id ORDER BY p.priority, p.id"""):
+        JOIN study_plans p ON p.id=pc.plan_id WHERE p.owner_user_id=?
+        ORDER BY p.priority, p.id""", (user_id,)):
         memberships.setdefault(row["course_id"], []).append(row["name"])
+    catalog = db.execute("""SELECT cc.* FROM course_catalogs cc WHERE NOT EXISTS
+        (SELECT 1 FROM courses c WHERE c.catalog_course_id=cc.id AND c.owner_user_id=?)
+        ORDER BY cc.name""", (user_id,)).fetchall()
     return render_template("courses.html", courses=courses_with_progress(),
-                           memberships=memberships)
+                           memberships=memberships, catalog=catalog)
+
+
+@bp.post("/catalog/<int:catalog_id>/enroll")
+def enroll_course(catalog_id):
+    try:
+        course_id = enroll_catalog_course(current_user_id(), catalog_id)
+        get_db().commit()
+        flash("Đã thêm khóa học chung vào danh mục của bạn.", "success")
+        return redirect(url_for("main.course_detail", course_id=course_id))
+    except ValueError as exc:
+        get_db().rollback()
+        flash(str(exc), "error")
+        return redirect(url_for("main.courses"))
 
 
 @bp.route("/courses/<int:course_id>", methods=["GET", "POST"])
@@ -882,7 +990,7 @@ def course_detail(course_id):
             if status == "Hoàn thành" and db.execute("""SELECT 1 FROM lectures
                 WHERE course_id=? AND status!='Hoàn thành' LIMIT 1""", (course_id,)).fetchone():
                 raise ValueError("Hãy hoàn thành các bài học trước khi đánh dấu xong khóa học")
-            db.execute("""UPDATE courses SET name=?, description=?, start_date=?,
+            db.execute("""UPDATE courses SET display_name=?, description=?, start_date=?,
                 status=?, progress=?, notes=?, estimated_hours=? WHERE id=?""",
                 (name, request.form.get("description", "").strip(), start, status,
                  progress, request.form.get("notes", "").strip(), estimated, course_id))
@@ -937,7 +1045,7 @@ def update_course_start_date(course_id):
             SELECT t.id, t.deadline FROM lecture_tasks t
             JOIN lectures l ON l.id=t.lecture_id
             WHERE l.course_id=? AND t.status!='Hoàn thành'""", (course_id,))}
-        reason = (f"Đổi ngày bắt đầu khóa học {course['name']}: "
+        reason = (f"Đổi ngày bắt đầu khóa học {course['display_name'] or course['name']}: "
                   f"{course['start_date'] or 'chưa đặt'} → {start or 'chưa đặt'}")
         db.execute("UPDATE courses SET start_date=? WHERE id=?", (start, course_id))
         if changed_start:
@@ -1011,7 +1119,8 @@ def delete_course(course_id):
                                   (course_id,)).fetchone()[0],
     }
     if request.method == "POST":
-        if request.form.get("course_name", "").strip() != course["name"]:
+        course_name = course["display_name"] or course["name"]
+        if request.form.get("course_name", "").strip() != course_name:
             flash("Tên xác nhận chưa khớp. Khóa học chưa bị xóa.", "error")
         else:
             try:
@@ -1021,7 +1130,7 @@ def delete_course(course_id):
                 if not pending_missed():
                     db.execute("SAVEPOINT delete_replan")
                     try:
-                        replan(date.today(), f"Xóa khóa học {course['name']}")
+                        replan(date.today(), f"Xóa khóa học {course_name}")
                     except ValueError:
                         db.execute("ROLLBACK TO delete_replan")
                     finally:
@@ -1031,7 +1140,7 @@ def delete_course(course_id):
                 db.rollback()
                 flash(f"Không thể xóa khóa học: {exc}", "error")
             else:
-                flash(f"Đã xóa {course['name']}. Bản sao lưu: {backup_path.name}", "success")
+                flash(f"Đã xóa {course_name}. Bản sao lưu: {backup_path.name}", "success")
                 return redirect(url_for("main.courses"))
     return render_template("course_delete.html", course=course, counts=counts)
 
@@ -1186,15 +1295,17 @@ def journal():
         try:
             values = journal_values()
             db.execute("""INSERT INTO journals
-                (date, course_id, topic, lecture, hours, difficulty, understanding, notes, problems, next_plan)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", values)
+                (date, course_id, topic, lecture, hours, difficulty, understanding, notes,
+                 problems, next_plan, user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (*values, current_user_id()))
             db.commit()
             flash("Đã lưu nhật ký học tập.", "success")
             return redirect(url_for("main.journal"))
         except (ValueError, KeyError) as exc:
             flash(f"Kiểm tra thông tin nhật ký: {exc}", "error")
-    entries = db.execute("""SELECT j.*, c.name AS course_name FROM journals j
-        JOIN courses c ON c.id=j.course_id ORDER BY j.date DESC, j.id DESC""").fetchall()
+    entries = db.execute("""SELECT j.*, c.display_name AS course_name FROM journals j
+        JOIN courses c ON c.id=j.course_id WHERE j.user_id=?
+        ORDER BY j.date DESC, j.id DESC""", (current_user_id(),)).fetchall()
     return render_template("journal.html", courses=courses_with_progress(), entries=entries,
                            today=date.today().isoformat(), difficulties=DIFFICULTIES)
 
@@ -1229,6 +1340,7 @@ def journal_delete(entry_id):
 @bp.route("/reviews", methods=["GET", "POST"])
 def reviews():
     db = get_db()
+    user_id = current_user_id()
     today = date.today()
     period = request.args.get("period", "week")
     if period not in ("week", "month"):
@@ -1243,16 +1355,18 @@ def reviews():
     end = (start + timedelta(days=6) if period == "week"
            else (start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1))
     if request.method == "POST":
-        db.execute("""INSERT INTO reviews (period, period_start, strength, weakness, action_plan)
-            VALUES (?, ?, ?, ?, ?) ON CONFLICT(period, period_start) DO UPDATE SET
+        db.execute("""INSERT INTO user_reviews
+            (user_id, period, period_start, strength, weakness, action_plan)
+            VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(user_id, period, period_start) DO UPDATE SET
             strength=excluded.strength, weakness=excluded.weakness, action_plan=excluded.action_plan""",
-            (period, start.isoformat(), request.form.get("strength", "").strip(),
+            (user_id, period, start.isoformat(), request.form.get("strength", "").strip(),
              request.form.get("weakness", "").strip(), request.form.get("action_plan", "").strip()))
         db.commit()
         flash("Đã lưu phần nhìn lại.", "success")
         return redirect(url_for("main.reviews", period=period, date=selected))
-    review = db.execute("SELECT * FROM reviews WHERE period=? AND period_start=?",
-                        (period, start.isoformat())).fetchone()
+    review = db.execute("""SELECT * FROM user_reviews
+        WHERE user_id=? AND period=? AND period_start=?""",
+        (user_id, period, start.isoformat())).fetchone()
     data = report_data()
     summary = period_summary(data["journals"], start.isoformat(), end.isoformat())
     entries = [row for row in data["journals"] if start.isoformat() <= row["date"] <= end.isoformat()]

@@ -3,6 +3,7 @@ from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
 
+from .auth import current_user_id
 from .db import get_db
 from .plan_import import TASK_TYPES
 from .scheduler import active_course_ids
@@ -16,6 +17,7 @@ def course_progress(course):
 
 
 def courses_with_progress():
+    user_id = current_user_id()
     rows = get_db().execute(
         """SELECT c.*, COUNT(l.id) AS lecture_count,
         SUM(CASE WHEN l.status = 'Hoàn thành' THEN 1 ELSE 0 END) AS completed_count,
@@ -26,11 +28,12 @@ def courses_with_progress():
              ELSE c.estimated_hours END AS remaining_hours_total,
         c.target_date AS calculated_target_date
         FROM courses c LEFT JOIN lectures l ON l.course_id = c.id
-        GROUP BY c.id ORDER BY c.id"""
+        WHERE c.owner_user_id=? GROUP BY c.id ORDER BY c.id""", (user_id,)
     ).fetchall()
     courses = []
     for row in rows:
         course = dict(row)
+        course["name"] = course.get("display_name") or course["name"]
         course["target_date"] = course.pop("calculated_target_date")
         course["display_progress"] = course_progress(course)
         courses.append(course)
@@ -39,34 +42,44 @@ def courses_with_progress():
 
 def report_data():
     db = get_db()
+    user_id = current_user_id()
     courses = courses_with_progress()
     lectures = [dict(row) for row in db.execute(
-        "SELECT * FROM lectures ORDER BY course_id, lecture_number"
-    )]
+        """SELECT l.* FROM lectures l JOIN courses c ON c.id=l.course_id
+        WHERE c.owner_user_id=? ORDER BY l.course_id, l.lecture_number""", (user_id,))]
     tasks = [dict(row) for row in db.execute(
-        "SELECT * FROM lecture_tasks ORDER BY lecture_id, position"
-    )]
+        """SELECT t.* FROM lecture_tasks t JOIN lectures l ON l.id=t.lecture_id
+        JOIN courses c ON c.id=l.course_id WHERE c.owner_user_id=?
+        ORDER BY t.lecture_id, t.position""", (user_id,))]
     journals = [dict(row) for row in db.execute(
-        """SELECT j.*, c.name AS course_name FROM journals j
-        JOIN courses c ON c.id = j.course_id ORDER BY j.date, j.id"""
-    )]
-    reviews = [dict(row) for row in db.execute("SELECT * FROM reviews ORDER BY period_start")]
+        """SELECT j.*, c.display_name AS course_name FROM journals j
+        JOIN courses c ON c.id = j.course_id WHERE j.user_id=? ORDER BY j.date, j.id""",
+        (user_id,))]
+    reviews = [dict(row) for row in db.execute(
+        "SELECT * FROM user_reviews WHERE user_id=? ORDER BY period_start", (user_id,))]
     allocations = [dict(row) for row in db.execute(
-        "SELECT * FROM schedule_allocations ORDER BY study_date, id")]
+        """SELECT a.* FROM schedule_allocations a JOIN courses c ON c.id=a.course_id
+        WHERE c.owner_user_id=? ORDER BY a.study_date, a.id""", (user_id,))]
     profiles = [dict(row) for row in db.execute(
-        "SELECT * FROM capacity_profiles ORDER BY effective_from")]
+        "SELECT * FROM user_capacity_profiles WHERE user_id=? ORDER BY effective_from", (user_id,))]
     overrides = [dict(row) for row in db.execute(
-        "SELECT * FROM capacity_overrides ORDER BY study_date")]
+        "SELECT * FROM user_capacity_overrides WHERE user_id=? ORDER BY study_date", (user_id,))]
     schedule_events = [dict(row) for row in db.execute(
-        "SELECT * FROM schedule_events ORDER BY id")]
+        """SELECT e.* FROM schedule_events e JOIN courses c ON c.id=e.course_id
+        WHERE c.owner_user_id=? ORDER BY e.id""", (user_id,))]
     completion_events = [dict(row) for row in db.execute(
-        "SELECT * FROM completion_events ORDER BY id")]
+        """SELECT e.* FROM completion_events e JOIN courses c ON c.id=e.course_id
+        WHERE c.owner_user_id=? ORDER BY e.id""", (user_id,))]
     missed = [dict(row) for row in db.execute(
-        "SELECT * FROM missed_deadlines ORDER BY id")]
-    imports = [dict(row) for row in db.execute("SELECT * FROM plan_imports ORDER BY id")]
-    plans = [dict(row) for row in db.execute("SELECT * FROM study_plans ORDER BY priority, id")]
+        """SELECT m.* FROM missed_deadlines m JOIN lectures l ON l.id=m.lecture_id
+        JOIN courses c ON c.id=l.course_id WHERE c.owner_user_id=? ORDER BY m.id""", (user_id,))]
+    imports = [dict(row) for row in db.execute(
+        "SELECT * FROM plan_imports WHERE user_id=? ORDER BY id", (user_id,))]
+    plans = [dict(row) for row in db.execute(
+        "SELECT * FROM study_plans WHERE owner_user_id=? ORDER BY priority, id", (user_id,))]
     plan_courses = [dict(row) for row in db.execute(
-        "SELECT * FROM plan_courses ORDER BY plan_id, position")]
+        """SELECT pc.* FROM plan_courses pc JOIN study_plans p ON p.id=pc.plan_id
+        WHERE p.owner_user_id=? ORDER BY pc.plan_id, pc.position""", (user_id,))]
     return {"courses": courses, "lectures": lectures, "lecture_tasks": tasks,
             "journals": journals, "plan_imports": imports,
             "study_plans": plans, "plan_courses": plan_courses,

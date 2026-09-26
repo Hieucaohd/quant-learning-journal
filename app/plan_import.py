@@ -2,7 +2,8 @@ import hashlib
 import json
 from decimal import Decimal, InvalidOperation
 
-from .db import get_db, sync_lecture_hours
+from .auth import current_user_id
+from .db import enroll_catalog_course, get_db, sync_lecture_hours
 from .scheduler import replan
 
 
@@ -125,9 +126,11 @@ def parse_plan(raw):
 
 def inspect_plan(plan):
     db = get_db()
+    user_id = current_user_id()
     new_courses = new_lectures = existing_lectures = 0
     for course in plan["courses"]:
-        existing_course = db.execute("SELECT * FROM courses WHERE name=?", (course["name"],)).fetchone()
+        existing_course = db.execute("""SELECT * FROM courses
+            WHERE owner_user_id=? AND display_name=?""", (user_id, course["name"])).fetchone()
         if existing_course is None:
             new_courses += 1
             new_lectures += len(course["lectures"])
@@ -151,13 +154,18 @@ def inspect_plan(plan):
 
 def apply_plan(plan, raw, source_name=""):
     db = get_db()
+    user_id = current_user_id()
     counts = inspect_plan(plan)
     for course in plan["courses"]:
-        row = db.execute("SELECT * FROM courses WHERE name=?", (course["name"],)).fetchone()
+        row = db.execute("""SELECT * FROM courses WHERE owner_user_id=? AND display_name=?""",
+                         (user_id, course["name"])).fetchone()
         if row is None:
-            cursor = db.execute("INSERT INTO courses (name, description) VALUES (?, ?)",
-                                (course["name"], course["description"]))
-            course_id = cursor.lastrowid
+            db.execute("""INSERT OR IGNORE INTO course_catalogs
+                (name, description, created_by) VALUES (?, ?, ?)""",
+                (course["name"], course["description"], user_id))
+            catalog = db.execute("SELECT id FROM course_catalogs WHERE name=?",
+                                 (course["name"],)).fetchone()
+            course_id = enroll_catalog_course(user_id, catalog["id"], clone_content=False)
         else:
             course_id = row["id"]
             if course["description"] and not row["description"]:
@@ -192,8 +200,9 @@ def apply_plan(plan, raw, source_name=""):
             sync_lecture_hours(db, lecture_id)
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     db.execute("""INSERT INTO plan_imports
-        (source_name, payload_sha256, course_count, lecture_count, task_count)
-        VALUES (?, ?, ?, ?, ?)""",
-        (source_name, digest, plan["course_count"], plan["lecture_count"], plan["task_count"]))
+        (source_name, payload_sha256, course_count, lecture_count, task_count, user_id)
+        VALUES (?, ?, ?, ?, ?, ?)""",
+        (source_name, digest, plan["course_count"], plan["lecture_count"],
+         plan["task_count"], user_id))
     replan(reason=f"Nhập kế hoạch AI: {source_name or 'JSON dán trực tiếp'}")
     return counts

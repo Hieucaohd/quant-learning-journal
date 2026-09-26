@@ -358,7 +358,7 @@ class ScheduleTest(unittest.TestCase):
             db.execute("""INSERT INTO lectures
                 (course_id, lecture_number, title, content, remaining_hours)
                 VALUES (1, 1, 'Bài thử', 'Giải bài tập', ?)""", (hours,))
-            db.execute("UPDATE capacity_profiles SET hours_json='[1,1,1,1,1,1,1]'")
+            db.execute("UPDATE user_capacity_profiles SET hours_json='[1,1,1,1,1,1,1]' WHERE user_id=1")
             db.commit()
         return app
 
@@ -388,7 +388,8 @@ class ScheduleTest(unittest.TestCase):
                 self.assertEqual((event["old_deadline"], event["new_deadline"]),
                                  (old_deadline, new_deadline))
                 self.assertIn("Giảm thời gian học", event["reason"])
-                self.assertEqual(db.execute("SELECT COUNT(*) FROM capacity_events").fetchone()[0], 1)
+                self.assertEqual(db.execute(
+                    "SELECT COUNT(*) FROM user_capacity_events WHERE user_id=1").fetchone()[0], 1)
 
     def test_missed_deadline_reason_and_completion(self):
         with tempfile.TemporaryDirectory() as directory:

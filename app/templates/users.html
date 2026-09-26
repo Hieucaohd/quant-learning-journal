@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Người dùng · Nhật ký học Quant{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">QUẢN TRỊ</p><h1>Người dùng</h1><p class="muted">Quản trị viên có thể xem tiến độ của mọi tài khoản.</p></div></div>
+<div class="two-col wide-left">
+  <section class="card"><h2>Danh sách tài khoản</h2><div class="course-list">
+    {% for user in users %}<div class="course-item"><span><strong>{{ user.display_name or user.username }}</strong><small>@{{ user.username }} · {{ 'Quản trị viên' if user.role == 'admin' else 'Người dùng' }} · {{ user.course_count }} khóa học · {{ user.plan_count }} kế hoạch</small></span><div class="button-group"><a class="button" href="{{ url_for('auth.user_progress', user_id=user.id) }}">Xem tiến độ</a><form method="post" action="{{ url_for('auth.reset_password', user_id=user.id) }}" class="inline-form"><input name="password" type="password" minlength="8" placeholder="Mật khẩu mới" required><button class="button" type="submit">Đặt lại mật khẩu</button></form></div></div>{% endfor %}
+  </div></section>
+  <section class="card"><h2>Tạo tài khoản</h2><form method="post" class="form-grid">
+    <label>Tên hiển thị <input name="display_name"></label>
+    <label>Tên đăng nhập <input name="username" required></label>
+    <label>Mật khẩu ban đầu <input name="password" type="password" minlength="8" required></label>
+    <label>Vai trò <select name="role"><option value="user">Người dùng</option><option value="admin">Quản trị viên</option></select></label>
+    <button class="button button-dark" type="submit">Tạo tài khoản</button>
+  </form></section>
+</div>
+{% endblock %}

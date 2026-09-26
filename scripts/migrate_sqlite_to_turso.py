@@ -16,6 +16,8 @@ from app.db import get_db
 
 
 TABLES = (
+    "users",
+    "course_catalogs",
     "courses",
     "lectures",
     "journals",
@@ -32,6 +34,11 @@ TABLES = (
     "completion_events",
     "plan_imports",
     "deletion_backups",
+    "plan_shares",
+    "user_capacity_profiles",
+    "user_capacity_overrides",
+    "user_capacity_events",
+    "user_reviews",
 )
 
 

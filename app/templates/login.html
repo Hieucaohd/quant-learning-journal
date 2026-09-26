@@ -1,0 +1,14 @@
+{% extends 'base.html' %}
+{% block title %}Đăng nhập · Nhật ký học Quant{% endblock %}
+{% block content %}
+<section class="card narrow auth-card">
+  <p class="eyebrow">QUANT LEARNING JOURNAL</p>
+  <h1>Đăng nhập</h1>
+  <p class="muted">Mỗi tài khoản có tiến độ, lịch học và kế hoạch riêng.</p>
+  <form method="post" class="form-grid">
+    <label>Tên đăng nhập <input name="username" autocomplete="username" required autofocus></label>
+    <label>Mật khẩu <input name="password" type="password" autocomplete="current-password" required></label>
+    <button class="button button-dark" type="submit">Đăng nhập</button>
+  </form>
+</section>
+{% endblock %}

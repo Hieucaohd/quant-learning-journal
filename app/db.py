@@ -1,10 +1,32 @@
 import sqlite3
+from datetime import datetime
 from pathlib import Path
+from uuid import uuid4
 
 from flask import current_app, g
+from werkzeug.security import generate_password_hash
 
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS app_meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY,
+    username TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    password_hash TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'user' CHECK(role IN ('user', 'admin')),
+    display_name TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS course_catalogs (
+    id INTEGER PRIMARY KEY,
+    name TEXT NOT NULL COLLATE NOCASE UNIQUE,
+    description TEXT NOT NULL DEFAULT '',
+    created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE TABLE IF NOT EXISTS courses (
     id INTEGER PRIMARY KEY,
     name TEXT NOT NULL UNIQUE,
@@ -158,6 +180,49 @@ CREATE TABLE IF NOT EXISTS deletion_backups (
     payload_json TEXT NOT NULL,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+CREATE TABLE IF NOT EXISTS plan_shares (
+    plan_id INTEGER NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    shared_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(plan_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS user_capacity_profiles (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    effective_from TEXT NOT NULL,
+    hours_json TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, effective_from)
+);
+CREATE TABLE IF NOT EXISTS user_capacity_overrides (
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    study_date TEXT NOT NULL,
+    hours REAL NOT NULL CHECK(hours >= 0 AND hours <= 24),
+    reason TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY(user_id, study_date)
+);
+CREATE TABLE IF NOT EXISTS user_capacity_events (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    effective_date TEXT NOT NULL,
+    old_hours TEXT,
+    new_hours TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS user_reviews (
+    id INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    period TEXT NOT NULL CHECK(period IN ('week', 'month')),
+    period_start TEXT NOT NULL,
+    strength TEXT NOT NULL DEFAULT '',
+    weakness TEXT NOT NULL DEFAULT '',
+    action_plan TEXT NOT NULL DEFAULT '',
+    UNIQUE(user_id, period, period_start)
+);
 """
 
 
@@ -293,11 +358,162 @@ def init_app(app):
         return
     with app.app_context():
         db = get_db()
-        db.executescript(SCHEMA)
-        migrate_schedule()
-        migrate_vietnamese()
-        migrate_plans()
-        get_db().commit()
+        db.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        version = db.execute("SELECT value FROM app_meta WHERE key='schema_version'").fetchone()
+        if current_app.config.get("TESTING") or version is None or int(version["value"]) < 2:
+            migrate_database()
+
+
+def _columns(table):
+    return {row["name"] for row in get_db().execute(f"PRAGMA table_info({table})")}
+
+
+def _add_column(table, name, definition):
+    if name not in _columns(table):
+        get_db().execute(f"ALTER TABLE {table} ADD COLUMN {name} {definition}")
+
+
+def ensure_user_defaults(user_id):
+    db = get_db()
+    if not db.execute("SELECT 1 FROM user_capacity_profiles WHERE user_id=? LIMIT 1",
+                      (user_id,)).fetchone():
+        db.execute("""INSERT INTO user_capacity_profiles
+            (user_id, effective_from, hours_json, reason)
+            VALUES (?, '2000-01-01', '[4,4,4,4,4,8,8]',
+                    'Lịch mặc định: 4 giờ ngày thường, 8 giờ cuối tuần')""", (user_id,))
+
+
+def create_user(username, password, role="user", display_name=""):
+    username = username.strip()
+    if not username or len(username) > 80:
+        raise ValueError("Tên đăng nhập phải có từ 1 đến 80 ký tự")
+    if len(password) < 8:
+        raise ValueError("Mật khẩu phải có ít nhất 8 ký tự")
+    if role not in ("user", "admin"):
+        raise ValueError("Vai trò không hợp lệ")
+    db = get_db()
+    user_id = db.execute("""INSERT INTO users
+        (username, password_hash, role, display_name) VALUES (?, ?, ?, ?)""",
+        (username, generate_password_hash(password), role,
+         display_name.strip() or username)).lastrowid
+    ensure_user_defaults(user_id)
+    return user_id
+
+
+def _unique_course_name(display_name, user_id):
+    db = get_db()
+    if not db.execute("SELECT 1 FROM courses WHERE name=?", (display_name,)).fetchone():
+        return display_name
+    return f"{display_name} [u{user_id}-{uuid4().hex[:8]}]"
+
+
+def enroll_catalog_course(user_id, catalog_id, clone_content=True):
+    """Tạo bản tiến độ riêng từ một khóa học trong danh mục chung."""
+    db = get_db()
+    existing = db.execute("""SELECT id FROM courses
+        WHERE owner_user_id=? AND catalog_course_id=?""", (user_id, catalog_id)).fetchone()
+    if existing:
+        return existing["id"]
+    catalog = db.execute("SELECT * FROM course_catalogs WHERE id=?", (catalog_id,)).fetchone()
+    if catalog is None:
+        raise ValueError("Không tìm thấy khóa học trong danh mục chung")
+    source = db.execute("""SELECT * FROM courses WHERE catalog_course_id=?
+        ORDER BY owner_user_id, id LIMIT 1""", (catalog_id,)).fetchone()
+    estimated = source["estimated_hours"] if source else 0
+    course_id = db.execute("""INSERT INTO courses
+        (name, display_name, description, estimated_hours, owner_user_id, catalog_course_id)
+        VALUES (?, ?, ?, ?, ?, ?)""",
+        (_unique_course_name(catalog["name"], user_id), catalog["name"],
+         catalog["description"], estimated, user_id, catalog_id)).lastrowid
+    if source and clone_content:
+        for lecture in db.execute("""SELECT * FROM lectures WHERE course_id=?
+            ORDER BY lecture_number""", (source["id"],)).fetchall():
+            lecture_id = db.execute("""INSERT INTO lectures
+                (course_id, lecture_number, title, estimated_hours, remaining_hours, content)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (course_id, lecture["lecture_number"], lecture["title"],
+                 lecture["estimated_hours"], lecture["estimated_hours"], lecture["content"])).lastrowid
+            for task in db.execute("""SELECT * FROM lecture_tasks WHERE lecture_id=?
+                ORDER BY position""", (lecture["id"],)).fetchall():
+                db.execute("""INSERT INTO lecture_tasks
+                    (lecture_id, position, kind, title, content, estimated_hours, remaining_hours)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (lecture_id, task["position"], task["kind"], task["title"],
+                     task["content"], task["estimated_hours"], task["estimated_hours"]))
+    return course_id
+
+
+def migrate_multi_user():
+    db = get_db()
+    username = current_app.config.get("APP_USERNAME") or "admin"
+    password = current_app.config.get("APP_PASSWORD") or ""
+    if not db.execute("SELECT 1 FROM users LIMIT 1").fetchone():
+        password_hash = generate_password_hash(password) if password else ""
+        db.execute("""INSERT INTO users (username, password_hash, role, display_name)
+            VALUES (?, ?, 'admin', ?)""", (username, password_hash, username))
+    admin_id = db.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()[0]
+
+    for table in ("courses", "study_plans"):
+        _add_column(table, "owner_user_id",
+                    f"INTEGER NOT NULL DEFAULT {admin_id}")
+    _add_column("courses", "display_name", "TEXT NOT NULL DEFAULT ''")
+    _add_column("courses", "catalog_course_id", "INTEGER")
+    for table in ("journals", "plan_imports", "deletion_backups"):
+        _add_column(table, "user_id",
+                    f"INTEGER NOT NULL DEFAULT {admin_id}")
+    db.execute("UPDATE courses SET display_name=name WHERE display_name='' OR display_name IS NULL")
+
+    for course in db.execute("SELECT id, display_name, description, owner_user_id, catalog_course_id FROM courses"):
+        if course["catalog_course_id"] is not None:
+            continue
+        db.execute("""INSERT OR IGNORE INTO course_catalogs (name, description, created_by)
+            VALUES (?, ?, ?)""",
+            (course["display_name"], course["description"], course["owner_user_id"]))
+        catalog = db.execute("SELECT id FROM course_catalogs WHERE name=?",
+                             (course["display_name"],)).fetchone()
+        db.execute("UPDATE courses SET catalog_course_id=? WHERE id=?",
+                   (catalog["id"], course["id"]))
+
+    ensure_user_defaults(admin_id)
+    if (not db.execute("SELECT 1 FROM user_capacity_profiles WHERE user_id=? AND id!=1 LIMIT 1",
+                       (admin_id,)).fetchone()
+            and db.execute("SELECT 1 FROM capacity_profiles LIMIT 1").fetchone()):
+        for row in db.execute("SELECT effective_from, hours_json, reason, created_at FROM capacity_profiles"):
+            db.execute("""INSERT OR IGNORE INTO user_capacity_profiles
+                (user_id, effective_from, hours_json, reason, created_at)
+                VALUES (?, ?, ?, ?, ?)""",
+                (admin_id, row["effective_from"], row["hours_json"], row["reason"], row["created_at"]))
+    if not db.execute("SELECT 1 FROM user_capacity_overrides WHERE user_id=?", (admin_id,)).fetchone():
+        for row in db.execute("SELECT * FROM capacity_overrides"):
+            db.execute("""INSERT OR IGNORE INTO user_capacity_overrides
+                (user_id, study_date, hours, reason, created_at) VALUES (?, ?, ?, ?, ?)""",
+                (admin_id, row["study_date"], row["hours"], row["reason"], row["created_at"]))
+    if not db.execute("SELECT 1 FROM user_capacity_events WHERE user_id=?", (admin_id,)).fetchone():
+        for row in db.execute("SELECT * FROM capacity_events"):
+            db.execute("""INSERT INTO user_capacity_events
+                (user_id, effective_date, old_hours, new_hours, reason, kind, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (admin_id, row["effective_date"], row["old_hours"], row["new_hours"],
+                 row["reason"], row["kind"], row["created_at"]))
+    if not db.execute("SELECT 1 FROM user_reviews WHERE user_id=?", (admin_id,)).fetchone():
+        for row in db.execute("SELECT * FROM reviews"):
+            db.execute("""INSERT OR IGNORE INTO user_reviews
+                (user_id, period, period_start, strength, weakness, action_plan)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                (admin_id, row["period"], row["period_start"], row["strength"],
+                 row["weakness"], row["action_plan"]))
+
+
+def migrate_database():
+    db = get_db()
+    db.executescript(SCHEMA)
+    migrate_schedule()
+    migrate_multi_user()
+    migrate_vietnamese()
+    migrate_plans()
+    db.execute("""INSERT INTO app_meta (key, value) VALUES ('schema_version', '2')
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value""")
+    db.commit()
 
 
 def migrate_plans():
@@ -412,9 +628,14 @@ def seed_demo():
         ("MIT Finance MicroMasters", "Chương trình tài chính"),
     ]
     for name, description in courses:
+        db.execute("""INSERT OR IGNORE INTO course_catalogs (name, description, created_by)
+            VALUES (?, ?, 1)""", (name, description))
+        catalog_id = db.execute("SELECT id FROM course_catalogs WHERE name=?", (name,)).fetchone()[0]
         db.execute(
-            "INSERT OR IGNORE INTO courses (name, description) VALUES (?, ?)",
-            (name, description),
+            """INSERT OR IGNORE INTO courses
+            (name, display_name, description, owner_user_id, catalog_course_id)
+            VALUES (?, ?, ?, 1, ?)""",
+            (name, name, description, catalog_id),
         )
     if first_seed:
         for name, hours in (("MIT 18.02", 120), ("MIT 18.06", 100),

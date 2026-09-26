@@ -1,9 +1,8 @@
 import os
 import sys
-from hmac import compare_digest
 from pathlib import Path
 
-from flask import Flask, Response, request
+from flask import Flask
 from dotenv import load_dotenv
 
 
@@ -45,14 +44,20 @@ def create_app(test_config=None):
         BACKUP_DIR=str(Path("/tmp/backups") if on_vercel else data_root / "database" / "backups"),
         TURSO_DATABASE_URL=turso_url,
         TURSO_AUTH_TOKEN=turso_token,
-        AUTO_MIGRATE_DATABASE=not on_vercel,
+        AUTO_MIGRATE_DATABASE=True,
         APP_USERNAME=os.environ.get("APP_USERNAME", "quant"),
         APP_PASSWORD=os.environ.get("APP_PASSWORD", ""),
         SECRET_KEY=os.environ.get("JOURNAL_SECRET_KEY", "local-only-journal-key"),
+        SESSION_COOKIE_HTTPONLY=True,
+        SESSION_COOKIE_SAMESITE="Lax",
+        SESSION_COOKIE_SECURE=on_vercel,
+        AUTH_DISABLED=False,
         MAX_CONTENT_LENGTH=2 * 1024 * 1024,
     )
     if test_config:
         app.config.update(test_config)
+        if app.config.get("TESTING") and "AUTH_DISABLED" not in test_config:
+            app.config["AUTH_DISABLED"] = True
         # Tests that explicitly select a local SQLite file must not inherit the
         # developer's real Turso credentials from .env. Integration tests can
         # still opt in by passing TURSO_DATABASE_URL in test_config.
@@ -66,24 +71,13 @@ def create_app(test_config=None):
     if on_vercel and not app.config["APP_PASSWORD"]:
         raise RuntimeError("Thiếu APP_PASSWORD trên Vercel; ứng dụng không được triển khai công khai.")
 
-    @app.before_request
-    def require_password():
-        password = app.config.get("APP_PASSWORD", "")
-        if not password:
-            return None
-        auth = request.authorization
-        valid = (auth and compare_digest(auth.username or "", app.config["APP_USERNAME"])
-                 and compare_digest(auth.password or "", password))
-        if valid:
-            return None
-        return Response("Cần đăng nhập để mở Nhật ký học Quant.", 401,
-                        {"WWW-Authenticate": 'Basic realm="Quant Learning Journal"'})
-
     from . import db
 
     db.init_app(app)
+    from .auth import bp as auth_bp
     from .routes import bp
 
+    app.register_blueprint(auth_bp)
     app.register_blueprint(bp)
 
     @app.errorhandler(404)
@@ -93,6 +87,14 @@ def create_app(test_config=None):
     @app.errorhandler(400)
     def bad_request(_error):
         return "Yêu cầu không hợp lệ.", 400
+
+    @app.errorhandler(401)
+    def unauthorized(_error):
+        return "Bạn cần đăng nhập để tiếp tục.", 401
+
+    @app.errorhandler(403)
+    def forbidden(_error):
+        return "Bạn không có quyền xem hoặc thay đổi nội dung này.", 403
 
     @app.errorhandler(413)
     def too_large(_error):

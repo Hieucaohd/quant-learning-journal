@@ -1,0 +1,13 @@
+{% extends 'base.html' %}
+{% block title %}Thiết lập quản trị viên{% endblock %}
+{% block content %}
+<section class="card narrow auth-card">
+  <p class="eyebrow">THIẾT LẬP LẦN ĐẦU</p>
+  <h1>Tạo tài khoản quản trị viên</h1>
+  <form method="post" class="form-grid">
+    <label>Tên đăng nhập <input name="username" autocomplete="username" required autofocus></label>
+    <label>Mật khẩu <input name="password" type="password" minlength="8" autocomplete="new-password" required></label>
+    <button class="button button-dark" type="submit">Hoàn tất thiết lập</button>
+  </form>
+</section>
+{% endblock %}

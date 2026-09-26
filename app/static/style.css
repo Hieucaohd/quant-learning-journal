@@ -12,3 +12,7 @@
 .lecture .lesson-editor{padding:0 0 14px}.lecture .lesson-editor>summary{display:inline-flex;justify-content:center;border:1px solid #d8dfd8;border-radius:7px;padding:8px 12px;color:#53665a;font-size:13px;font-weight:650;background:#fff}.lecture .lesson-editor>summary:hover{background:#f5f7f4}.lecture .lesson-editor[open]>summary{margin-bottom:8px}.notice.compact{display:inline-block;margin:0 0 12px;padding:7px 10px;font-size:12px}
 
 .schedule-answers{margin-bottom:20px}.schedule-answers .stat{min-height:126px}.schedule-answers .stat strong{font-size:25px}.schedule-answers .stat a{margin-top:auto;font-size:13px;font-weight:650}
+/* Tài khoản và đăng nhập */
+.account-actions { display: flex; align-items: center; gap: .6rem; }
+.account-actions form { margin: 0; }
+.auth-card { margin-top: 4rem; }

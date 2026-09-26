@@ -70,7 +70,7 @@ Trong **Project Settings → Environment Variables**, thêm:
 | Biến | Giá trị |
 |---|---|
 | `APP_USERNAME` | `quant` hoặc tên bạn muốn |
-| `APP_PASSWORD` | một mật khẩu dài, riêng biệt |
+| `APP_PASSWORD` | mật khẩu ban đầu của quản trị viên |
 | `JOURNAL_SECRET_KEY` | chuỗi ngẫu nhiên |
 
 Tạo secret bằng Python:
@@ -79,7 +79,9 @@ Tạo secret bằng Python:
 python -c "import secrets; print(secrets.token_urlsafe(48))"
 ```
 
-Dùng kết quả cho `JOURNAL_SECRET_KEY`. Khi mở website, trình duyệt sẽ hỏi username và password.
+Dùng kết quả cho `JOURNAL_SECRET_KEY`. Khi mở website, ứng dụng hiển thị trang đăng nhập.
+
+Sau lần deploy đầu tiên, đăng nhập bằng `APP_USERNAME` và `APP_PASSWORD`. Từ mục **Người dùng**, quản trị viên có thể tạo thêm tài khoản, chọn vai trò và đặt lại mật khẩu. Việc đổi `APP_PASSWORD` trên Vercel không tự đổi mật khẩu của tài khoản đã được tạo; hãy dùng chức năng đặt lại mật khẩu trong ứng dụng.
 
 ## 5. Deploy
 

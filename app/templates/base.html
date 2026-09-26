@@ -12,7 +12,7 @@
   <header class="site-header">
     <div class="shell header-inner">
       <a class="brand" href="{{ url_for('main.dashboard') }}">∑ <span>Nhật ký học Quant</span></a>
-      <nav aria-label="Điều hướng chính">
+      {% if g.user %}<nav aria-label="Điều hướng chính">
         <a href="{{ url_for('main.dashboard') }}" {% if request.endpoint == 'main.dashboard' %}aria-current="page"{% endif %}>Tổng quan</a>
         <a href="{{ url_for('main.schedule') }}" {% if request.endpoint == 'main.schedule' %}aria-current="page"{% endif %}>Lịch học</a>
         <a href="{{ url_for('main.import_plan') }}" {% if request.endpoint == 'main.import_plan' %}aria-current="page"{% endif %}>Nhập kế hoạch học</a>
@@ -20,8 +20,10 @@
         <a href="{{ url_for('main.courses') }}" {% if request.endpoint in ('main.courses', 'main.course_detail') %}aria-current="page"{% endif %}>Khóa học</a>
         <a href="{{ url_for('main.plans') }}" {% if request.endpoint in ('main.plans', 'main.plan_detail') %}aria-current="page"{% endif %}>Kế hoạch</a>
         <a href="{{ url_for('main.reviews') }}" {% if request.endpoint == 'main.reviews' %}aria-current="page"{% endif %}>Nhìn lại</a>
+        {% if g.user and g.user.role == 'admin' %}<a href="{{ url_for('auth.users') }}" {% if request.endpoint and request.endpoint.startswith('auth.user') %}aria-current="page"{% endif %}>Người dùng</a>{% endif %}
       </nav>
-      <form action="{{ url_for('main.export') }}" method="post"><button class="button button-dark" type="submit">Xuất dữ liệu học tập</button></form>
+      {% if g.user %}<div class="account-actions"><span class="muted small">{{ g.user.display_name or g.user.username }} · {{ 'Quản trị viên' if g.user.role == 'admin' else 'Người dùng' }}</span><form action="{{ url_for('auth.logout') }}" method="post"><button class="button" type="submit">Đăng xuất</button></form></div>{% endif %}
+      <form action="{{ url_for('main.export') }}" method="post"><button class="button button-dark" type="submit">Xuất dữ liệu học tập</button></form>{% endif %}
     </div>
   </header>
   <main class="shell">
@@ -30,7 +32,7 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
-  <footer class="shell footer">Dữ liệu lưu trên máy · SQLite · Xuất Markdown và JSON</footer>
+  <footer class="shell footer">Dữ liệu học tập thuộc về từng tài khoản · Xuất Markdown và JSON</footer>
   {% block scripts %}{% endblock %}
 </body>
 </html>

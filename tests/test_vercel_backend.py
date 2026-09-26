@@ -1,4 +1,3 @@
-import base64
 import gc
 import os
 import tempfile
@@ -61,13 +60,17 @@ class VercelBackendTest(unittest.TestCase):
                 "DATABASE": str(Path(directory) / "journal.sqlite3"),
                 "APP_PASSWORD": "secret",
                 "APP_USERNAME": "quant",
+                "AUTH_DISABLED": False,
             })
             client = app.test_client()
-            self.assertEqual(client.get("/").status_code, 401)
-            token = base64.b64encode(b"quant:secret").decode("ascii")
-            self.assertEqual(client.get("/", headers={
-                "Authorization": f"Basic {token}",
+            self.assertEqual(client.get("/").status_code, 302)
+            self.assertEqual(client.post("/login", data={
+                "username": "quant", "password": "wrong",
             }).status_code, 200)
+            self.assertEqual(client.post("/login", data={
+                "username": "quant", "password": "secret",
+            }).status_code, 302)
+            self.assertEqual(client.get("/").status_code, 200)
 
     def test_migration_script_copies_local_sqlite(self):
         with tempfile.TemporaryDirectory() as directory:

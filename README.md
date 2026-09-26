@@ -1,6 +1,6 @@
 ﻿# Nhật ký học Quant
 
-Ứng dụng ghi lại quá trình học theo lộ trình Quant Research. Giao diện web chạy bằng Flask; dữ liệu được lưu trong SQLite tại `data/journal.sqlite3`. Bạn có thể xuất Markdown và JSON để tải lên ChatGPT khi cần phân tích tiến độ. Sau khi cài thư viện, ứng dụng không cần tài khoản, khóa API hoặc kết nối mạng.
+Ứng dụng ghi lại quá trình học theo lộ trình Quant Research. Giao diện web chạy bằng Flask; bản local lưu dữ liệu trong SQLite tại `data/journal.sqlite3`. Bạn có thể xuất Markdown và JSON để tải lên ChatGPT khi cần phân tích tiến độ. Ứng dụng không cần khóa API và bản local có thể chạy không cần kết nối mạng.
 
 ## Cài đặt và chạy
 
@@ -14,7 +14,7 @@ python run.py --seed
 python run.py
 ```
 
-Mở <http://127.0.0.1:5000>. Trên macOS/Linux, dùng `source .venv/bin/activate` để kích hoạt môi trường ảo. Bỏ qua `python run.py --seed` nếu muốn bắt đầu với cơ sở dữ liệu trống. Chạy lại lệnh thêm dữ liệu mẫu sẽ không tạo các bản ghi mẫu trùng lặp.
+Mở <http://127.0.0.1:5000>. Lần chạy đầu tiên, trang thiết lập sẽ yêu cầu tạo tài khoản quản trị viên. Trên macOS/Linux, dùng `source .venv/bin/activate` để kích hoạt môi trường ảo. Bỏ qua `python run.py --seed` nếu muốn bắt đầu với cơ sở dữ liệu trống. Chạy lại lệnh thêm dữ liệu mẫu sẽ không tạo các bản ghi mẫu trùng lặp.
 
 ### Chạy trực tiếp trên Windows
 
@@ -30,6 +30,15 @@ pip install -r requirements-build.txt
 ## Triển khai lên Vercel
 
 Ứng dụng hỗ trợ Vercel bằng entrypoint `index.py`. Bản local/EXE tiếp tục dùng SQLite; bản Vercel dùng Turso để dữ liệu tồn tại lâu dài giữa các lần chạy serverless. Xem toàn bộ hướng dẫn tạo database miễn phí, chuyển dữ liệu hiện tại, đặt mật khẩu và deploy tại [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md).
+
+## Nhiều người dùng
+
+- Mỗi người đăng nhập bằng tên người dùng và mật khẩu; mật khẩu được lưu dưới dạng băm.
+- Khóa học nằm trong danh mục chung. Khi thêm một khóa học chung, mỗi người nhận vùng tiến độ riêng.
+- Lịch học, nhật ký, quỹ giờ, phần nhìn lại và kế hoạch thuộc riêng từng tài khoản.
+- Chủ sở hữu có thể chia sẻ kế hoạch cho một tên đăng nhập khác ở chế độ chỉ xem và thu hồi quyền sau đó.
+- Quản trị viên tạo tài khoản, đặt lại mật khẩu và xem tiến độ của tất cả người dùng tại mục **Người dùng**.
+- Khi nâng cấp, toàn bộ dữ liệu cũ được gán cho tài khoản quản trị viên đầu tiên.
 
 ## Cách sử dụng
 

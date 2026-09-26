@@ -2,17 +2,21 @@ import json
 from collections import defaultdict
 from datetime import date, timedelta
 
+from .auth import current_user_id
 from .db import get_db
 
 
 def capacity_on(day, profiles=None, overrides=None):
     db = get_db()
+    user_id = current_user_id()
     if profiles is None:
         profiles = [dict(row) for row in db.execute(
-            "SELECT * FROM capacity_profiles ORDER BY effective_from")]
+            "SELECT * FROM user_capacity_profiles WHERE user_id=? ORDER BY effective_from",
+            (user_id,))]
     if overrides is None:
         overrides = {row["study_date"]: row["hours"] for row in db.execute(
-            "SELECT study_date, hours FROM capacity_overrides")}
+            "SELECT study_date, hours FROM user_capacity_overrides WHERE user_id=?",
+            (user_id,))}
     key = day.isoformat()
     if key in overrides:
         return overrides[key]
@@ -22,20 +26,23 @@ def capacity_on(day, profiles=None, overrides=None):
 
 def course_deadlines():
     return {row["id"]: row["target_date"] for row in get_db().execute(
-        "SELECT id, target_date FROM courses WHERE target_date IS NOT NULL")}
+        "SELECT id, target_date FROM courses WHERE owner_user_id=? AND target_date IS NOT NULL",
+        (current_user_id(),))}
 
 
 def active_course_ids():
     rows = get_db().execute("""SELECT pc.course_id FROM plan_courses pc
         JOIN study_plans p ON p.id=pc.plan_id WHERE p.status='Đang hoạt động'
-        ORDER BY p.priority, p.id, pc.position, pc.course_id""")
+        AND p.owner_user_id=? ORDER BY p.priority, p.id, pc.position, pc.course_id""",
+        (current_user_id(),))
     return list(dict.fromkeys(row["course_id"] for row in rows))
 
 
 def course_plan_owners():
     rows = get_db().execute("""SELECT pc.course_id, pc.plan_id FROM plan_courses pc
         JOIN study_plans p ON p.id=pc.plan_id WHERE p.status='Đang hoạt động'
-        ORDER BY p.priority, p.id, pc.position, pc.course_id""")
+        AND p.owner_user_id=? ORDER BY p.priority, p.id, pc.position, pc.course_id""",
+        (current_user_id(),))
     owners = {}
     for row in rows:
         owners.setdefault(row["course_id"], row["plan_id"])
@@ -46,21 +53,23 @@ def pending_missed(today=None):
     today = today or date.today()
     db = get_db()
     lecture_rows = [dict(row, task_id=None, part_title=None) for row in db.execute(
-        """SELECT l.*, c.name AS course_name FROM lectures l JOIN courses c ON c.id=l.course_id
+        """SELECT l.*, c.display_name AS course_name FROM lectures l JOIN courses c ON c.id=l.course_id
         WHERE l.status != 'Hoàn thành' AND l.remaining_hours > 0 AND l.deadline < ? AND
         EXISTS (SELECT 1 FROM plan_courses pc JOIN study_plans p ON p.id=pc.plan_id
-                WHERE pc.course_id=l.course_id AND p.status='Đang hoạt động') AND
+                WHERE pc.course_id=l.course_id AND p.status='Đang hoạt động'
+                AND p.owner_user_id=?) AND
         NOT EXISTS (SELECT 1 FROM lecture_tasks t WHERE t.lecture_id=l.id)""",
-        (today.isoformat(),))]
+        (today.isoformat(), current_user_id()))]
     task_rows = []
     for row in db.execute("""SELECT t.id AS task_id, t.title AS part_title,
-        t.deadline, l.id, l.course_id, l.lecture_number, l.title, c.name AS course_name
+        t.deadline, l.id, l.course_id, l.lecture_number, l.title, c.display_name AS course_name
         FROM lecture_tasks t JOIN lectures l ON l.id=t.lecture_id
         JOIN courses c ON c.id=l.course_id
         WHERE t.status != 'Hoàn thành' AND t.deadline < ? AND
         EXISTS (SELECT 1 FROM plan_courses pc JOIN study_plans p ON p.id=pc.plan_id
-                WHERE pc.course_id=l.course_id AND p.status='Đang hoạt động')""",
-                          (today.isoformat(),)):
+                WHERE pc.course_id=l.course_id AND p.status='Đang hoạt động'
+                AND p.owner_user_id=?)""",
+                          (today.isoformat(), current_user_id())):
         task_rows.append(dict(row))
     return sorted(lecture_rows + task_rows,
                   key=lambda row: (row["deadline"], row["course_id"], row["lecture_number"]))
@@ -68,7 +77,8 @@ def pending_missed(today=None):
 
 def ensure_plan(today=None):
     db = get_db()
-    if not db.execute("SELECT 1 FROM schedule_allocations LIMIT 1").fetchone():
+    if not db.execute("""SELECT 1 FROM schedule_allocations a JOIN courses c ON c.id=a.course_id
+        WHERE c.owner_user_id=? LIMIT 1""", (current_user_id(),)).fetchone():
         replan(today or date.today(), "Lập lịch học ban đầu")
         db.commit()
 
@@ -84,14 +94,19 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
     overdue_task_ids = {row["task_id"] for row in overdue if row["task_id"] is not None}
     overdue_lecture_ids = {row["id"] for row in overdue if row["task_id"] is None}
     start_key = start.isoformat()
-    courses = [dict(row) for row in db.execute("SELECT * FROM courses ORDER BY id")]
+    user_id = current_user_id()
+    courses = [dict(row) for row in db.execute(
+        "SELECT * FROM courses WHERE owner_user_id=? ORDER BY id", (user_id,))]
     course_by_id = {course["id"]: course for course in courses}
     scheduled_ids = active_course_ids()
     owners = course_plan_owners()
     lectures = [dict(row) for row in db.execute(
-        "SELECT * FROM lectures ORDER BY course_id, lecture_number")]
+        """SELECT l.* FROM lectures l JOIN courses c ON c.id=l.course_id
+        WHERE c.owner_user_id=? ORDER BY l.course_id, l.lecture_number""", (user_id,))]
     parts = [dict(row) for row in db.execute(
-        "SELECT * FROM lecture_tasks ORDER BY lecture_id, position")]
+        """SELECT t.* FROM lecture_tasks t JOIN lectures l ON l.id=t.lecture_id
+        JOIN courses c ON c.id=l.course_id WHERE c.owner_user_id=?
+        ORDER BY t.lecture_id, t.position""", (user_id,))]
     by_course = defaultdict(list)
     by_lecture = defaultdict(list)
     for lecture in lectures:
@@ -110,23 +125,27 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
     old_course_deadlines = course_deadlines()
     old_lecture_deadlines = {row["id"]: row["deadline"] for row in lectures}
     old_part_deadlines = {row["id"]: row["deadline"] for row in parts}
-    stale_allocations = db.execute("""SELECT id, lecture_id, task_id FROM schedule_allocations WHERE
+    stale_allocations = db.execute("""SELECT a.id, a.lecture_id, a.task_id FROM schedule_allocations a
+        JOIN courses owned ON owned.id=a.course_id WHERE owned.owner_user_id=? AND
         ((lecture_id IS NULL AND course_id IN (SELECT id FROM courses WHERE status != 'Hoàn thành'))
          OR (lecture_id IS NOT NULL AND task_id IS NULL AND lecture_id IN
              (SELECT id FROM lectures WHERE status != 'Hoàn thành'))
-         OR task_id IN (SELECT id FROM lecture_tasks WHERE status != 'Hoàn thành'))""").fetchall()
+         OR task_id IN (SELECT id FROM lecture_tasks WHERE status != 'Hoàn thành'))""",
+        (user_id,)).fetchall()
     db.executemany("DELETE FROM schedule_allocations WHERE id=?",
                    ((row["id"],) for row in stale_allocations
                     if row["task_id"] not in frozen_task_ids
                     and row["lecture_id"] not in frozen_lecture_ids))
     used = defaultdict(float)
-    for row in db.execute("""SELECT study_date, SUM(hours) AS hours FROM schedule_allocations
-        WHERE study_date >= ? GROUP BY study_date""", (start_key,)):
+    for row in db.execute("""SELECT a.study_date, SUM(a.hours) AS hours FROM schedule_allocations a
+        JOIN courses c ON c.id=a.course_id WHERE a.study_date >= ? AND c.owner_user_id=?
+        GROUP BY a.study_date""", (start_key, user_id)):
         used[row["study_date"]] = row["hours"]
     profiles = [dict(row) for row in db.execute(
-        "SELECT * FROM capacity_profiles ORDER BY effective_from")]
+        "SELECT * FROM user_capacity_profiles WHERE user_id=? ORDER BY effective_from",
+        (user_id,))]
     overrides = {row["study_date"]: row["hours"] for row in db.execute(
-        "SELECT study_date, hours FROM capacity_overrides")}
+        "SELECT study_date, hours FROM user_capacity_overrides WHERE user_id=?", (user_id,))}
     work = []
     for course_id in scheduled_ids:
         course = course_by_id[course_id]
@@ -318,7 +337,8 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
             SELECT l.course_id, t.manual_deadline AS deadline FROM lecture_tasks t
                 JOIN lectures l ON l.id=t.lecture_id
                 WHERE t.status!='Hoàn thành' AND t.manual_deadline IS NOT NULL
-        ) GROUP BY course_id""", (start_key,))}
+        ) WHERE course_id IN (SELECT id FROM courses WHERE owner_user_id=?)
+        GROUP BY course_id""", (start_key, user_id))}
     for lecture_id in frozen_lecture_ids:
         lecture = lecture_by_id[lecture_id]
         if lecture["deadline"]:
@@ -343,7 +363,7 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
 
 
 def day_plan(day, plan_ids=None):
-    query = """SELECT a.*, c.name AS course_name, l.lecture_number,
+    query = """SELECT a.*, c.display_name AS course_name, l.lecture_number,
         l.title, l.content, l.deadline, l.status, l.completed_at,
         t.title AS part_title, t.kind AS part_kind, t.content AS part_content,
         t.deadline AS part_deadline, t.status AS part_status,
@@ -352,7 +372,8 @@ def day_plan(day, plan_ids=None):
         LEFT JOIN lectures l ON l.id=a.lecture_id
         LEFT JOIN lecture_tasks t ON t.id=a.task_id
         WHERE a.study_date=?"""
-    params = [day.isoformat()]
+    query += " AND c.owner_user_id=?"
+    params = [day.isoformat(), current_user_id()]
     if plan_ids is not None:
         if not plan_ids:
             return []
