@@ -21,4 +21,4 @@ Thông tin tôi cung cấp để lập kế hoạch:
 - Mức độ hiểu hiện tại và phần đã học:
 - Giới hạn hoặc ưu tiên về thời gian (nếu có):
 
-Sau khi nhận JSON, tôi sẽ mở **Nhập kế hoạch AI**, xem trước và xác nhận. Ứng dụng sẽ từ chối bài đã hoàn thành hoặc bài đã có phần việc để tránh ghi đè tiến độ.
+Sau khi nhận JSON, tôi sẽ mở **Nhập kế hoạch học**, xem trước và xác nhận. Ứng dụng sẽ từ chối bài đã hoàn thành hoặc bài đã có phần việc để tránh ghi đè tiến độ.

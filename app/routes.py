@@ -11,6 +11,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from flask import (Blueprint, abort, current_app, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
+from .ai_kit import ai_kit_files, ai_prompt
 from .auth import current_user_id
 from .db import enroll_catalog_course, get_db, sync_lecture_hours
 from .reports import build_export, courses_with_progress, period_summary, report_data, streak
@@ -590,7 +591,20 @@ def import_plan():
             flash(str(exc), "error")
             preview = None
     return render_template("import_plan.html", preview=preview, raw=raw,
-                           source_name=source_name, task_types=TASK_TYPES)
+                           source_name=source_name, task_types=TASK_TYPES,
+                           ai_prompt=ai_prompt(current_user_id()))
+
+
+@bp.get("/import-plan/ai-kit.zip")
+def download_ai_kit():
+    """ZIP of the prompt, schema, sample and the user's courses, for ChatGPT."""
+    output = BytesIO()
+    with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+        for name, content in ai_kit_files(current_user_id()).items():
+            archive.writestr(f"quant-ai-kit/{name}", content)
+    output.seek(0)
+    return send_file(output, mimetype="application/zip", as_attachment=True,
+                     download_name=f"quant-ai-kit-{date.today().isoformat()}.zip")
 
 
 @bp.route("/plans", methods=["GET", "POST"])
