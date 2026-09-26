@@ -92,7 +92,7 @@ vercel link
 vercel --prod
 ```
 
-Vercel đọc `api/index.py`, `vercel.json`, `.python-version` và `requirements.txt`. Không cần đặt Build Command hoặc Output Directory.
+Vercel tự nhận diện Flask qua entrypoint `index.py` ở thư mục gốc và đọc `.python-version`, `requirements.txt`. Không cần đặt Build Command, Output Directory hoặc rewrite thủ công.
 
 ## 6. Kiểm tra sau deploy
 
