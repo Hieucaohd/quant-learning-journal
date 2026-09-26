@@ -212,6 +212,17 @@ class MultiUserTest(unittest.TestCase):
             self.login(client, "bob", "bob-password")
             self.assertIn(complete_action, client.get("/schedule").get_data(as_text=True))
 
+    def test_passwordless_admin_is_claimed_by_app_password(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "journal.sqlite3")
+            create_app({"TESTING": True, "AUTH_DISABLED": False, "DATABASE": path,
+                        "APP_USERNAME": "admin", "APP_PASSWORD": ""})
+            app = self.make_app(directory)
+            client = app.test_client()
+            self.assertEqual(client.get("/setup").status_code, 302)
+            self.assertEqual(client.get("/login").status_code, 200)
+            self.assertEqual(self.login(client, "admin", "admin-password").status_code, 302)
+
     def test_user_can_change_own_password(self):
         with tempfile.TemporaryDirectory() as directory:
             app = self.make_app(directory)

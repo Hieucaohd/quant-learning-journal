@@ -365,6 +365,25 @@ def init_app(app):
         if (current_app.config.get("TESTING") or version is None
                 or int(version["value"]) < SCHEMA_VERSION):
             migrate_database()
+        claim_passwordless_admin()
+
+
+def claim_passwordless_admin():
+    """Give a password-less first admin the configured APP_PASSWORD.
+
+    A first user without a password makes /setup open to whoever visits first.
+    That is only acceptable for a local install; when APP_PASSWORD is set (as it
+    must be on Vercel) the account is secured at startup instead.
+    """
+    password = current_app.config.get("APP_PASSWORD") or ""
+    if not password:
+        return
+    db = get_db()
+    admin = db.execute("SELECT id, password_hash FROM users ORDER BY id LIMIT 1").fetchone()
+    if admin and not admin["password_hash"]:
+        db.execute("UPDATE users SET password_hash=? WHERE id=?",
+                   (generate_password_hash(password), admin["id"]))
+        db.commit()
 
 
 def _columns(table):

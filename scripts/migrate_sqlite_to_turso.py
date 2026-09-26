@@ -74,7 +74,8 @@ def main():
     app = create_app({
         "TURSO_DATABASE_URL": url,
         "TURSO_AUTH_TOKEN": token,
-        "APP_PASSWORD": "",
+        # Never create a password-less admin on the remote database.
+        "APP_PASSWORD": os.environ.get("APP_PASSWORD", ""),
         "TESTING": True,
     })
     source = sqlite3.connect(source_path)

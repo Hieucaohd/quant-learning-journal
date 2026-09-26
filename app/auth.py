@@ -58,7 +58,7 @@ def require_login():
 def setup():
     db = get_db()
     user = db.execute("SELECT * FROM users ORDER BY id LIMIT 1").fetchone()
-    if user and user["password_hash"]:
+    if (user and user["password_hash"]) or current_app.config.get("APP_PASSWORD"):
         return redirect(url_for("auth.login"))
     if request.method == "POST":
         username = request.form.get("username", "").strip()
@@ -78,7 +78,7 @@ def setup():
 @bp.route("/login", methods=["GET", "POST"])
 def login():
     first = get_db().execute("SELECT * FROM users ORDER BY id LIMIT 1").fetchone()
-    if first and not first["password_hash"]:
+    if first and not first["password_hash"] and not current_app.config.get("APP_PASSWORD"):
         return redirect(url_for("auth.setup"))
     if request.method == "POST":
         username = request.form.get("username", "").strip()
