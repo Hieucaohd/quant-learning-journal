@@ -101,6 +101,26 @@ def logout():
     return redirect(url_for("auth.login"))
 
 
+@bp.route("/account/password", methods=["GET", "POST"])
+def change_password():
+    if request.method == "POST":
+        new_password = request.form.get("new_password", "")
+        if not check_password_hash(g.user["password_hash"],
+                                   request.form.get("current_password", "")):
+            flash("Mật khẩu hiện tại không đúng.", "error")
+        elif len(new_password) < 8:
+            flash("Mật khẩu mới phải có ít nhất 8 ký tự.", "error")
+        elif new_password != request.form.get("confirm_password", ""):
+            flash("Mật khẩu xác nhận không khớp.", "error")
+        else:
+            get_db().execute("UPDATE users SET password_hash=? WHERE id=?",
+                             (generate_password_hash(new_password), g.user["id"]))
+            get_db().commit()
+            flash("Đã đổi mật khẩu.", "success")
+            return redirect(url_for("main.dashboard"))
+    return render_template("account_password.html")
+
+
 @bp.route("/admin/users", methods=["GET", "POST"])
 @admin_required
 def users():
@@ -147,8 +167,9 @@ def user_progress(user_id):
     user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
     if user is None:
         abort(404)
-    courses = db.execute("""SELECT c.* FROM courses c
-        WHERE c.owner_user_id=? ORDER BY c.id""", (user_id,)).fetchall()
+    from .reports import courses_with_progress
+
+    courses = courses_with_progress(user_id)
     plans = db.execute("""SELECT p.*,
         (SELECT COUNT(*) FROM plan_courses pc WHERE pc.plan_id=p.id) AS course_count
         FROM study_plans p WHERE p.owner_user_id=? ORDER BY p.priority, p.id""",

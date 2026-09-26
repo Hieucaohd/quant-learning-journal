@@ -78,6 +78,98 @@ class MultiUserTest(unittest.TestCase):
             page = client.get(f"/admin/users/{alice}/progress")
             self.assertEqual(page.status_code, 200)
 
+    def test_plan_names_are_unique_per_owner_only(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = self.make_app(directory)
+            client = app.test_client()
+            self.login(client, "admin", "admin-password")
+            client.post("/admin/users", data={
+                "username": "bob", "password": "bob-password", "role": "user"})
+            client.post("/plans", data={"name": "Nền tảng", "priority": "1"})
+            client.post("/logout")
+            self.login(client, "bob", "bob-password")
+            client.post("/plans", data={"name": "Nền tảng", "priority": "1"})
+            client.post("/plans", data={"name": "Nền tảng", "priority": "2"})
+            with app.app_context():
+                owners = [row[0] for row in get_db().execute(
+                    "SELECT owner_user_id FROM study_plans WHERE name='Nền tảng' ORDER BY id")]
+            self.assertEqual(len(owners), 2)
+            self.assertNotEqual(owners[0], owners[1])
+
+    def test_legacy_plan_table_is_rebuilt_without_losing_links(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = self.make_app(directory)
+            with app.app_context():
+                db = get_db()
+                course_id = db.execute("""INSERT INTO courses (name, display_name, owner_user_id)
+                    VALUES ('Khóa cũ', 'Khóa cũ', 1)""").lastrowid
+                plan_id = db.execute("SELECT id FROM study_plans").fetchone()[0]
+                db.execute("INSERT INTO plan_courses (plan_id, course_id, position) VALUES (?, ?, 1)",
+                           (plan_id, course_id))
+                db.commit()
+                # Recreate the pre-v3 table shape: globally unique plan names.
+                db.execute("PRAGMA foreign_keys = OFF")
+                db.executescript("""
+                    CREATE TABLE legacy AS SELECT * FROM study_plans;
+                    DROP TABLE study_plans;
+                    CREATE TABLE study_plans (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE,
+                        description TEXT NOT NULL DEFAULT '', status TEXT NOT NULL
+                        DEFAULT 'Đang hoạt động', priority INTEGER NOT NULL DEFAULT 100,
+                        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                        owner_user_id INTEGER NOT NULL DEFAULT 1);
+                    INSERT INTO study_plans SELECT * FROM legacy;
+                    DROP TABLE legacy;
+                """)
+                db.execute("PRAGMA foreign_keys = ON")
+            app = self.make_app(directory)
+            with app.app_context():
+                db = get_db()
+                table_sql = db.execute("""SELECT sql FROM sqlite_master
+                    WHERE name='study_plans'""").fetchone()[0]
+                self.assertIn("UNIQUE(owner_user_id, name)", table_sql)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM plan_courses WHERE plan_id=?",
+                                            (plan_id,)).fetchone()[0], 1)
+
+    def test_shared_view_shows_progress_computed_from_hours(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = self.make_app(directory)
+            client = app.test_client()
+            self.login(client, "admin", "admin-password")
+            client.post("/admin/users", data={
+                "username": "bob", "password": "bob-password", "role": "user"})
+            with app.app_context():
+                db = get_db()
+                course_id = db.execute("""INSERT INTO courses (name, display_name, owner_user_id)
+                    VALUES ('Xác suất', 'Xác suất', 1)""").lastrowid
+                db.execute("""INSERT INTO lectures (course_id, lecture_number, status,
+                    estimated_hours, remaining_hours) VALUES (?, 1, 'Hoàn thành', 3, 0),
+                    (?, 2, 'Chưa bắt đầu', 1, 1)""", (course_id, course_id))
+                plan_id = db.execute("SELECT id FROM study_plans WHERE owner_user_id=1").fetchone()[0]
+                db.execute("INSERT INTO plan_courses (plan_id, course_id, position) VALUES (?, ?, 9)",
+                           (plan_id, course_id))
+                db.commit()
+            client.post(f"/plans/{plan_id}/share", data={"username": "bob"})
+            client.post("/logout")
+            self.login(client, "bob", "bob-password")
+            page = client.get(f"/shared/plans/{plan_id}").get_data(as_text=True)
+            self.assertIn("75%", page)
+            self.assertIn("Còn 1/4 giờ", page)
+
+    def test_user_can_change_own_password(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = self.make_app(directory)
+            client = app.test_client()
+            self.login(client, "admin", "admin-password")
+            client.post("/account/password", data={
+                "current_password": "wrong-password", "new_password": "new-password",
+                "confirm_password": "new-password"})
+            client.post("/account/password", data={
+                "current_password": "admin-password", "new_password": "new-password",
+                "confirm_password": "new-password"})
+            client.post("/logout")
+            self.assertEqual(self.login(client, "admin", "admin-password").status_code, 200)
+            self.assertEqual(self.login(client, "admin", "new-password").status_code, 302)
+
 
 if __name__ == "__main__":
     unittest.main()

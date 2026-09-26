@@ -16,8 +16,9 @@ def course_progress(course):
     return course["progress"]
 
 
-def courses_with_progress():
-    user_id = current_user_id()
+def courses_with_progress(user_id=None):
+    """Courses owned by `user_id` (default: the signed-in user) with computed progress."""
+    user_id = current_user_id() if user_id is None else user_id
     rows = get_db().execute(
         """SELECT c.*, COUNT(l.id) AS lecture_count,
         SUM(CASE WHEN l.status = 'Hoàn thành' THEN 1 ELSE 0 END) AS completed_count,

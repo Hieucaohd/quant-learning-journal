@@ -7,6 +7,8 @@ from flask import current_app, g
 from werkzeug.security import generate_password_hash
 
 
+SCHEMA_VERSION = 3
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS app_meta (
     key TEXT PRIMARY KEY,
@@ -360,7 +362,8 @@ def init_app(app):
         db = get_db()
         db.execute("CREATE TABLE IF NOT EXISTS app_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         version = db.execute("SELECT value FROM app_meta WHERE key='schema_version'").fetchone()
-        if current_app.config.get("TESTING") or version is None or int(version["value"]) < 2:
+        if (current_app.config.get("TESTING") or version is None
+                or int(version["value"]) < SCHEMA_VERSION):
             migrate_database()
 
 
@@ -511,8 +514,10 @@ def migrate_database():
     migrate_multi_user()
     migrate_vietnamese()
     migrate_plans()
-    db.execute("""INSERT INTO app_meta (key, value) VALUES ('schema_version', '2')
-        ON CONFLICT(key) DO UPDATE SET value=excluded.value""")
+    db.commit()
+    migrate_plan_name_scope()
+    db.execute("""INSERT INTO app_meta (key, value) VALUES ('schema_version', ?)
+        ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (str(SCHEMA_VERSION),))
     db.commit()
 
 
@@ -520,11 +525,53 @@ def migrate_plans():
     db = get_db()
     if db.execute("SELECT 1 FROM study_plans LIMIT 1").fetchone():
         return
-    plan_id = db.execute("""INSERT INTO study_plans (name, description, priority)
-        VALUES ('Lộ trình Quant', 'Lộ trình học Quant hiện tại', 1)""").lastrowid
-    for position, row in enumerate(db.execute("SELECT id FROM courses ORDER BY id"), 1):
+    admin_id = db.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()[0]
+    plan_id = db.execute("""INSERT INTO study_plans (name, description, priority, owner_user_id)
+        VALUES ('Lộ trình Quant', 'Lộ trình học Quant hiện tại', 1, ?)""",
+        (admin_id,)).lastrowid
+    for position, row in enumerate(db.execute(
+            "SELECT id FROM courses WHERE owner_user_id=? ORDER BY id", (admin_id,)), 1):
         db.execute("INSERT INTO plan_courses (plan_id, course_id, position) VALUES (?, ?, ?)",
                    (plan_id, row["id"], position))
+
+
+def migrate_plan_name_scope():
+    """Plan names were globally unique; make them unique per owner instead.
+
+    SQLite cannot drop a column constraint, so the table is rebuilt. Foreign keys
+    must be off while the old table is dropped, otherwise ON DELETE CASCADE would
+    wipe plan_courses and plan_shares. The caller must have committed first:
+    PRAGMA foreign_keys is ignored inside an open transaction.
+    """
+    db = get_db()
+    table_sql = db.execute("""SELECT sql FROM sqlite_master
+        WHERE type='table' AND name='study_plans'""").fetchone()["sql"]
+    if "UNIQUE(owner_user_id, name)" in table_sql:
+        return
+    db.execute("PRAGMA foreign_keys = OFF")
+    try:
+        db.executescript("""
+            BEGIN;
+            CREATE TABLE study_plans_new (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                description TEXT NOT NULL DEFAULT '',
+                status TEXT NOT NULL DEFAULT 'Đang hoạt động',
+                priority INTEGER NOT NULL DEFAULT 100,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                UNIQUE(owner_user_id, name)
+            );
+            INSERT INTO study_plans_new
+                (id, name, description, status, priority, created_at, owner_user_id)
+                SELECT id, name, description, status, priority, created_at, owner_user_id
+                FROM study_plans;
+            DROP TABLE study_plans;
+            ALTER TABLE study_plans_new RENAME TO study_plans;
+            COMMIT;
+        """)
+    finally:
+        db.execute("PRAGMA foreign_keys = ON")
 
 
 def sync_lecture_hours(db=None, lecture_id=None):

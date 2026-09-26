@@ -80,11 +80,16 @@ class VercelBackendTest(unittest.TestCase):
             with local_app.app_context():
                 get_db().execute("INSERT INTO courses (name) VALUES ('Khóa cần chuyển')")
                 get_db().commit()
-            environment = {
+            # Isolate from the developer's .env so the script can never reach a real
+            # Turso database, even if credential precedence changes later.
+            environment = {name: value for name, value in os.environ.items()
+                           if "TURSO_" not in name}
+            environment.update({
                 "TURSO_DATABASE_URL": str(target),
                 "TURSO_AUTH_TOKEN": "test-token",
-            }
-            with patch.dict(os.environ, environment, clear=False), patch(
+            })
+            with patch.dict(os.environ, environment, clear=True), patch(
+                    "app.load_dotenv"), patch(
                     "sys.argv", ["migrate_sqlite_to_turso.py", "--source", str(source)]):
                 migrate_to_turso()
             remote_app = create_app({

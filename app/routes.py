@@ -321,7 +321,8 @@ def schedule():
         l.lecture_number, t.title AS part_title FROM schedule_events e
         JOIN courses c ON c.id=e.course_id
         LEFT JOIN lectures l ON l.id=e.lecture_id
-        LEFT JOIN lecture_tasks t ON t.id=e.task_id ORDER BY e.id DESC LIMIT 300""")
+        LEFT JOIN lecture_tasks t ON t.id=e.task_id
+        WHERE c.owner_user_id=? ORDER BY e.id DESC LIMIT 300""", (user_id,))
               if row["course_id"] in selected_course_ids][:30]
     capacity_events = [dict(row) for row in db.execute(
         "SELECT * FROM user_capacity_events WHERE user_id=? ORDER BY id DESC LIMIT 20",
@@ -663,11 +664,11 @@ def shared_plan(plan_id):
                           (plan_id, current_user_id())).fetchone())
     if not allowed:
         abort(403)
-    members = db.execute("""SELECT c.*, pc.position, COUNT(l.id) AS lecture_count,
-        SUM(CASE WHEN l.status='Hoàn thành' THEN 1 ELSE 0 END) AS completed_count
-        FROM plan_courses pc JOIN courses c ON c.id=pc.course_id
-        LEFT JOIN lectures l ON l.course_id=c.id WHERE pc.plan_id=?
-        GROUP BY c.id, pc.position ORDER BY pc.position, c.id""", (plan_id,)).fetchall()
+    progress = {course["id"]: course
+                for course in courses_with_progress(plan["owner_user_id"])}
+    members = [progress[row["course_id"]] for row in db.execute(
+        "SELECT course_id FROM plan_courses WHERE plan_id=? ORDER BY position, course_id",
+        (plan_id,)) if row["course_id"] in progress]
     return render_template("shared_plan.html", plan=plan, members=members)
 
 
