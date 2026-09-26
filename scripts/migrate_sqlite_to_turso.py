@@ -69,7 +69,8 @@ def main():
         raise SystemExit(f"Không tìm thấy SQLite: {source_path}")
     url, token = turso_credentials_from_env()
     if not url or not token:
-        raise SystemExit("Hãy đặt TURSO_DATABASE_URL và TURSO_AUTH_TOKEN trước khi chạy.")
+        raise SystemExit("Hãy đặt quant_learning_journal_TURSO_DATABASE_URL và "
+                         "quant_learning_journal_TURSO_AUTH_TOKEN trước khi chạy.")
 
     app = create_app({
         "TURSO_DATABASE_URL": url,

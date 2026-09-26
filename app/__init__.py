@@ -6,28 +6,14 @@ from flask import Flask
 from dotenv import load_dotenv
 
 
-def turso_credentials_from_env():
-    direct = (os.environ.get("TURSO_DATABASE_URL", ""),
-              os.environ.get("TURSO_AUTH_TOKEN", ""))
-    if all(direct):
-        return direct
+# The production database. These are the only Turso variables the app reads;
+# any other TURSO_* variables (e.g. an unprefixed TURSO_DATABASE_URL) are ignored.
+TURSO_URL_ENV = "quant_learning_journal_TURSO_DATABASE_URL"
+TURSO_TOKEN_ENV = "quant_learning_journal_TURSO_AUTH_TOKEN"
 
-    url_suffix = "TURSO_DATABASE_URL"
-    candidates = []
-    for name, url in os.environ.items():
-        if not name.endswith(url_suffix) or name == url_suffix or not url:
-            continue
-        prefix = name[:-len(url_suffix)]
-        token = os.environ.get(f"{prefix}TURSO_AUTH_TOKEN", "")
-        if token:
-            candidates.append((url, token))
-    if len(candidates) == 1:
-        return candidates[0]
-    if len(candidates) > 1:
-        raise RuntimeError(
-            "Có nhiều cặp biến Turso có tiền tố. Hãy đặt TURSO_DATABASE_URL và "
-            "TURSO_AUTH_TOKEN để chọn database cần dùng.")
-    return direct
+
+def turso_credentials_from_env():
+    return os.environ.get(TURSO_URL_ENV, ""), os.environ.get(TURSO_TOKEN_ENV, "")
 
 
 def is_remote_database(url):

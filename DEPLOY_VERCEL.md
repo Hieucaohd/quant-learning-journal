@@ -7,7 +7,7 @@ Vercel Function chỉ có filesystem chỉ đọc và thư mục tạm `/tmp`. F
 Cấu hình này giữ hai chế độ:
 
 - Chạy local hoặc file EXE: dùng `data/journal.sqlite3` như hiện tại.
-- Chạy trên Vercel: dùng Turso qua `TURSO_DATABASE_URL` và `TURSO_AUTH_TOKEN`.
+- Chạy trên Vercel: dùng Turso qua `quant_learning_journal_TURSO_DATABASE_URL` và `quant_learning_journal_TURSO_AUTH_TOKEN`.
 
 Turso là SQLite serverless và có gói miễn phí trên Vercel Marketplace.
 
@@ -25,11 +25,11 @@ Trong Vercel Dashboard:
 2. Chọn **Storage** hoặc **Marketplace**.
 3. Cài **Turso Cloud** và tạo một database trống.
 4. Kết nối database với project.
-5. Kiểm tra project đã có hai biến Turso. Vercel có thể tự thêm tiền tố tên project, ví dụ:
+5. Kiểm tra project đã có đúng hai biến Turso sau:
    - `quant_learning_journal_TURSO_DATABASE_URL`
    - `quant_learning_journal_TURSO_AUTH_TOKEN`
 
-Ứng dụng tự nhận cặp biến có cùng tiền tố, vì vậy không cần tạo thêm bản sao không có tiền tố. Nếu project có nhiều Turso database, hãy tạo `TURSO_DATABASE_URL` và `TURSO_AUTH_TOKEN` để chọn rõ database cần dùng.
+Đây là database production và là **cặp biến Turso duy nhất** ứng dụng đọc. Các biến khác như `TURSO_DATABASE_URL` hay `TURSO_AUTH_TOKEN` (không tiền tố) bị bỏ qua hoàn toàn; nên xóa chúng khỏi Vercel để tránh nhầm lẫn.
 
 Giữ hai giá trị này bí mật. Không ghi chúng vào Git.
 
@@ -42,13 +42,13 @@ Trên máy local, mở PowerShell trong thư mục dự án và cài thư viện
 pip install -r requirements.txt
 ```
 
-Nếu đã lưu hai biến Turso trong file `.env` tại thư mục dự án, ứng dụng và script sẽ tự đọc file đó. Cả tên chuẩn lẫn tên có tiền tố do Vercel tạo đều được hỗ trợ. File `.env` đã nằm trong `.gitignore` và không được đưa lên Git.
+Nếu đã lưu hai biến Turso trong file `.env` tại thư mục dự án, ứng dụng và script sẽ tự đọc file đó. File `.env` đã nằm trong `.gitignore` và không được đưa lên Git.
 
 Nếu chưa có `.env`, lấy URL và token từ Vercel/Turso Dashboard rồi đặt tạm trong cửa sổ PowerShell hiện tại:
 
 ```powershell
-$env:TURSO_DATABASE_URL="libsql://..."
-$env:TURSO_AUTH_TOKEN="..."
+$env:quant_learning_journal_TURSO_DATABASE_URL="libsql://..."
+$env:quant_learning_journal_TURSO_AUTH_TOKEN="..."
 python .\scripts\migrate_sqlite_to_turso.py
 ```
 
@@ -57,8 +57,8 @@ Script chỉ chấp nhận Turso chưa có khóa học để tránh ghi đè. N�
 Sau khi chuyển xong, xóa token khỏi phiên terminal nếu muốn:
 
 ```powershell
-Remove-Item Env:TURSO_DATABASE_URL
-Remove-Item Env:TURSO_AUTH_TOKEN
+Remove-Item Env:quant_learning_journal_TURSO_DATABASE_URL
+Remove-Item Env:quant_learning_journal_TURSO_AUTH_TOKEN
 ```
 
 ## 4. Đặt mật khẩu cho website
@@ -96,6 +96,15 @@ vercel --prod
 
 Vercel tự nhận diện Flask qua entrypoint `index.py` ở thư mục gốc và đọc `.python-version`, `requirements.txt`. Không cần đặt Build Command, Output Directory hoặc rewrite thủ công.
 
+## Nâng cấp schema database
+
+Ứng dụng **không tự chạy migration** trên Turso khi khởi động; nếu schema cũ hơn code, log của Vercel sẽ có cảnh báo. Để nâng cấp, sao lưu database rồi chạy trên máy local (dùng `.env` trỏ tới production):
+
+```powershell
+python .\scripts\migrate_database.py        # xem database và phiên bản schema
+python .\scripts\migrate_database.py --yes  # chạy migration
+```
+
 ## 6. Kiểm tra sau deploy
 
 1. Mở URL `https://<project>.vercel.app`.
@@ -109,8 +118,8 @@ File Markdown/JSON được tạo trong bộ nhớ hoặc `/tmp` để tải xu�
 ## Biến môi trường production
 
 ```text
-TURSO_DATABASE_URL=libsql://...
-TURSO_AUTH_TOKEN=...
+quant_learning_journal_TURSO_DATABASE_URL=libsql://...
+quant_learning_journal_TURSO_AUTH_TOKEN=...
 APP_USERNAME=quant
 APP_PASSWORD=...
 JOURNAL_SECRET_KEY=...

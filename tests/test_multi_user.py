@@ -292,6 +292,17 @@ class MultiUserTest(unittest.TestCase):
                 self.assertEqual(connection.execute(
                     "SELECT COUNT(*) FROM sqlite_master WHERE name='users'").fetchone()[0], 0)
 
+    def test_passwordless_admin_is_claimed_even_without_migrations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = str(Path(directory) / "journal.sqlite3")
+            create_app({"TESTING": True, "DATABASE": path, "APP_USERNAME": "admin",
+                        "APP_PASSWORD": ""})
+            app = create_app({"TESTING": True, "AUTH_DISABLED": False, "DATABASE": path,
+                              "APP_PASSWORD": "admin-password",
+                              "AUTO_MIGRATE_DATABASE": False})
+            client = app.test_client()
+            self.assertEqual(self.login(client, "admin", "admin-password").status_code, 302)
+
     def test_user_can_change_own_password(self):
         with tempfile.TemporaryDirectory() as directory:
             app = self.make_app(directory)

@@ -364,6 +364,12 @@ def init_app(app):
                 app.logger.warning(
                     "Database schema v%s is older than the code (v%s); run "
                     "scripts/migrate_database.py to upgrade it.", version, SCHEMA_VERSION)
+            # Not a migration: only fills in a missing admin password, so the
+            # site cannot be locked out (or claimed through /setup).
+            try:
+                claim_passwordless_admin()
+            except sqlite3.Error:
+                get_db().rollback()
         return
     with app.app_context():
         db = get_db()

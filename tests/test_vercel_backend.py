@@ -11,14 +11,21 @@ from scripts.migrate_sqlite_to_turso import main as migrate_to_turso
 
 
 class VercelBackendTest(unittest.TestCase):
-    def test_prefixed_vercel_turso_variables_are_detected(self):
+    def test_only_the_production_turso_variables_are_read(self):
         variables = {
             "quant_learning_journal_TURSO_DATABASE_URL": "libsql://example.turso.io",
             "quant_learning_journal_TURSO_AUTH_TOKEN": "prefixed-token",
+            "TURSO_DATABASE_URL": "libsql://other.turso.io",
+            "TURSO_AUTH_TOKEN": "other-token",
+            "another_TURSO_DATABASE_URL": "libsql://third.turso.io",
+            "another_TURSO_AUTH_TOKEN": "third-token",
         }
         with patch.dict(os.environ, variables, clear=True):
             self.assertEqual(turso_credentials_from_env(),
                              ("libsql://example.turso.io", "prefixed-token"))
+        with patch.dict(os.environ, {"TURSO_DATABASE_URL": "libsql://other.turso.io",
+                                     "TURSO_AUTH_TOKEN": "other-token"}, clear=True):
+            self.assertEqual(turso_credentials_from_env(), ("", ""))
 
     def test_libsql_backend_and_remote_deletion_backup(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -85,8 +92,8 @@ class VercelBackendTest(unittest.TestCase):
             environment = {name: value for name, value in os.environ.items()
                            if "TURSO_" not in name}
             environment.update({
-                "TURSO_DATABASE_URL": str(target),
-                "TURSO_AUTH_TOKEN": "test-token",
+                "quant_learning_journal_TURSO_DATABASE_URL": str(target),
+                "quant_learning_journal_TURSO_AUTH_TOKEN": "test-token",
             })
             with patch.dict(os.environ, environment, clear=True), patch(
                     "app.load_dotenv"), patch(
