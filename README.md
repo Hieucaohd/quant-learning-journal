@@ -27,6 +27,10 @@ pip install -r requirements-build.txt
 .\build_exe.ps1
 ```
 
+## Triển khai lên Vercel
+
+Ứng dụng hỗ trợ Vercel bằng entrypoint `api/index.py`. Bản local/EXE tiếp tục dùng SQLite; bản Vercel dùng Turso để dữ liệu tồn tại lâu dài giữa các lần chạy serverless. Xem toàn bộ hướng dẫn tạo database miễn phí, chuyển dữ liệu hiện tại, đặt mật khẩu và deploy tại [DEPLOY_VERCEL.md](DEPLOY_VERCEL.md).
+
 ## Cách sử dụng
 
 1. Thêm khóa học vào **Danh mục khóa học** hoặc nạp dữ liệu mẫu bằng `--seed`. Khóa mới có thể nằm trong danh mục để học sau; lịch chưa xếp khóa đó.

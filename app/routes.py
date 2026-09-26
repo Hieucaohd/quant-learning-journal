@@ -72,12 +72,18 @@ def required_row(table, row_id):
 
 
 def backup_database(label):
+    db = get_db()
+    if getattr(db, "is_remote", False):
+        payload = json.dumps(report_data(), ensure_ascii=False)
+        backup_id = db.execute("""INSERT INTO deletion_backups (label, payload_json)
+            VALUES (?, ?)""", (label, payload)).lastrowid
+        return Path(f"turso-backup-{backup_id}.json")
     backup_dir = Path(current_app.config["BACKUP_DIR"])
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     backup_path = backup_dir / f"journal-before-{label}-{stamp}-{uuid4().hex[:8]}.sqlite3"
     with closing(sqlite3.connect(backup_path)) as destination:
-        get_db().backup(destination)
+        db.backup(destination)
     return backup_path
 
 

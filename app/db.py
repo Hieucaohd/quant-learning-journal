@@ -152,17 +152,132 @@ CREATE TABLE IF NOT EXISTS plan_courses (
     PRIMARY KEY(plan_id, course_id)
 );
 CREATE INDEX IF NOT EXISTS plan_courses_course_idx ON plan_courses(course_id);
+CREATE TABLE IF NOT EXISTS deletion_backups (
+    id INTEGER PRIMARY KEY,
+    label TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 """
+
+
+class DatabaseRow:
+    def __init__(self, columns, values):
+        self._columns = tuple(columns)
+        self._values = tuple(values)
+        self._by_name = dict(zip(self._columns, self._values))
+
+    def __getitem__(self, key):
+        return self._values[key] if isinstance(key, (int, slice)) else self._by_name[key]
+
+    def __iter__(self):
+        return iter(self._values)
+
+    def __len__(self):
+        return len(self._values)
+
+    def keys(self):
+        return self._columns
+
+
+class DatabaseCursor:
+    def __init__(self, cursor, lastrowid=None):
+        self._cursor = cursor
+        self._columns = tuple(item[0] for item in (cursor.description or ()))
+        self._lastrowid = getattr(cursor, "lastrowid", None) if lastrowid is None else lastrowid
+
+    def _row(self, row):
+        return None if row is None else DatabaseRow(self._columns, row)
+
+    def fetchone(self):
+        return self._row(self._cursor.fetchone())
+
+    def fetchall(self):
+        return [self._row(row) for row in self._cursor.fetchall()]
+
+    def __iter__(self):
+        while True:
+            row = self._cursor.fetchone()
+            if row is None:
+                return
+            yield self._row(row)
+
+    @property
+    def lastrowid(self):
+        return self._lastrowid
+
+    def __getattr__(self, name):
+        return getattr(self._cursor, name)
+
+
+class LibsqlConnection:
+    """Lớp tương thích sqlite3.Row cho trình điều khiển Turso/libSQL."""
+
+    is_remote = True
+
+    def __init__(self, connection):
+        self._connection = connection
+
+    @staticmethod
+    def _raise_compatible(error):
+        message = str(error)
+        if "constraint failed" in message.lower():
+            raise sqlite3.IntegrityError(message) from error
+        raise sqlite3.DatabaseError(message) from error
+
+    def execute(self, sql, parameters=None):
+        try:
+            cursor = (self._connection.execute(sql) if parameters is None
+                      else self._connection.execute(sql, tuple(parameters)))
+            lastrowid = getattr(cursor, "lastrowid", None)
+            if sql.lstrip().upper().startswith("INSERT") and not lastrowid:
+                lastrowid = self._connection.execute(
+                    "SELECT last_insert_rowid()").fetchone()[0]
+            return DatabaseCursor(cursor, lastrowid)
+        except ValueError as error:
+            self._raise_compatible(error)
+
+    def executemany(self, sql, parameters):
+        try:
+            values = [tuple(item) for item in parameters]
+            return DatabaseCursor(self._connection.executemany(sql, values))
+        except ValueError as error:
+            self._raise_compatible(error)
+
+    def executescript(self, sql):
+        try:
+            return self._connection.executescript(sql)
+        except ValueError as error:
+            self._raise_compatible(error)
+
+    def commit(self):
+        return self._connection.commit()
+
+    def rollback(self):
+        return self._connection.rollback()
+
+    def close(self):
+        return self._connection.close()
 
 
 def get_db():
     if "db" not in g:
-        path = Path(current_app.config["DATABASE"])
-        path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(path)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys = ON")
-        g.db = connection
+        remote_url = current_app.config.get("TURSO_DATABASE_URL")
+        if remote_url:
+            import libsql
+
+            connection = libsql.connect(
+                database=remote_url,
+                auth_token=current_app.config.get("TURSO_AUTH_TOKEN", ""),
+            )
+            g.db = LibsqlConnection(connection)
+        else:
+            path = Path(current_app.config["DATABASE"])
+            path.parent.mkdir(parents=True, exist_ok=True)
+            connection = sqlite3.connect(path)
+            connection.row_factory = sqlite3.Row
+            g.db = connection
+        g.db.execute("PRAGMA foreign_keys = ON")
     return g.db
 
 
@@ -175,7 +290,13 @@ def close_db(_error=None):
 def init_app(app):
     app.teardown_appcontext(close_db)
     with app.app_context():
-        get_db().executescript(SCHEMA)
+        db = get_db()
+        if getattr(db, "is_remote", False):
+            for statement in SCHEMA.split(";"):
+                if statement.strip():
+                    db.execute(statement)
+        else:
+            db.executescript(SCHEMA)
         migrate_schedule()
         migrate_vietnamese()
         migrate_plans()

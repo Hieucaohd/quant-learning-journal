@@ -1,4 +1,10 @@
 .venv/
+.vercel/
+.env
+.env.*
+!.env.example
+build/
+*.exe
 __pycache__/
 *.py[cod]
 data/*.sqlite3*
