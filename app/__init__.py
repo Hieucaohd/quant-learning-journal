@@ -30,6 +30,10 @@ def turso_credentials_from_env():
     return direct
 
 
+def is_remote_database(url):
+    return (url or "").lower().startswith(("libsql://", "http://", "https://", "ws://", "wss://"))
+
+
 def create_app(test_config=None):
     app = Flask(__name__)
     source_root = Path(__file__).resolve().parent.parent
@@ -44,7 +48,6 @@ def create_app(test_config=None):
         BACKUP_DIR=str(Path("/tmp/backups") if on_vercel else data_root / "database" / "backups"),
         TURSO_DATABASE_URL=turso_url,
         TURSO_AUTH_TOKEN=turso_token,
-        AUTO_MIGRATE_DATABASE=True,
         APP_USERNAME=os.environ.get("APP_USERNAME", "quant"),
         APP_PASSWORD=os.environ.get("APP_PASSWORD", ""),
         SECRET_KEY=os.environ.get("JOURNAL_SECRET_KEY", "local-only-journal-key"),
@@ -64,6 +67,12 @@ def create_app(test_config=None):
         if "DATABASE" in test_config and "TURSO_DATABASE_URL" not in test_config:
             app.config["TURSO_DATABASE_URL"] = ""
             app.config["TURSO_AUTH_TOKEN"] = ""
+    if "AUTO_MIGRATE_DATABASE" not in (test_config or {}):
+        # Only local SQLite files migrate on startup. A remote (real) database is
+        # migrated only when someone deliberately sets AUTO_MIGRATE_DATABASE=1.
+        app.config["AUTO_MIGRATE_DATABASE"] = (
+            not is_remote_database(app.config["TURSO_DATABASE_URL"])
+            or os.environ.get("AUTO_MIGRATE_DATABASE") == "1")
     if on_vercel and not app.config["TURSO_DATABASE_URL"]:
         raise RuntimeError("Không tìm thấy cặp biến Turso trên Vercel; SQLite local không lưu bền vững.")
     if on_vercel and not app.config["TURSO_AUTH_TOKEN"]:

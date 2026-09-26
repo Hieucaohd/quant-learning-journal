@@ -3,8 +3,15 @@
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">QUẢN TRỊ</p><h1>Người dùng</h1><p class="muted">Quản trị viên có thể xem tiến độ của mọi tài khoản.</p></div></div>
 <div class="two-col wide-left">
-  <section class="card"><h2>Danh sách tài khoản</h2><div class="course-list">
-    {% for user in users %}<div class="course-item"><span><strong>{{ user.display_name or user.username }}</strong><small>@{{ user.username }} · {{ 'Quản trị viên' if user.role == 'admin' else 'Người dùng' }} · {{ user.course_count }} khóa học · {{ user.plan_count }} kế hoạch</small></span><div class="button-group"><a class="button" href="{{ url_for('auth.user_progress', user_id=user.id) }}">Xem tiến độ</a><form method="post" action="{{ url_for('auth.reset_password', user_id=user.id) }}" class="inline-form"><input name="password" type="password" minlength="8" placeholder="Mật khẩu mới" required><button class="button" type="submit">Đặt lại mật khẩu</button></form></div></div>{% endfor %}
+  <section class="card"><h2>Danh sách tài khoản</h2><div class="user-list">
+    {% set admin_count = users|selectattr('role', 'equalto', 'admin')|list|length %}{% for user in users %}<div class="user-row">
+      <div class="user-row-head"><span><strong>{{ user.display_name or user.username }}</strong><small>Tên đăng nhập: <b>@{{ user.username }}</b> · {{ 'Quản trị viên' if user.role == 'admin' else 'Người dùng' }} · {{ user.course_count }} khóa học · {{ user.plan_count }} kế hoạch</small></span><a class="button" href="{{ url_for('auth.user_progress', user_id=user.id) }}">Xem tiến độ</a></div>
+      <div class="user-row-actions">
+        <form method="post" action="{{ url_for('auth.update_display_name', user_id=user.id) }}" class="inline-form"><input name="display_name" value="{{ user.display_name }}" maxlength="80" placeholder="Tên hiển thị" aria-label="Tên hiển thị của @{{ user.username }}"><button class="button" type="submit">Lưu tên</button></form>
+        <form method="post" action="{{ url_for('auth.reset_password', user_id=user.id) }}" class="inline-form"><input name="password" type="password" minlength="8" placeholder="Mật khẩu mới" required aria-label="Mật khẩu mới của @{{ user.username }}"><button class="button" type="submit">Đặt lại mật khẩu</button></form>
+      </div>
+      {% if user.id != g.user.id and not (user.role == 'admin' and admin_count <= 1) %}<details class="danger-zone"><summary>Xóa tài khoản…</summary><p class="muted small">Xóa @{{ user.username }} cùng toàn bộ khóa học, kế hoạch, nhật ký và lịch học của tài khoản này. Dữ liệu được sao lưu trong cơ sở dữ liệu trước khi xóa.</p><form method="post" action="{{ url_for('auth.delete_user', user_id=user.id) }}" class="inline-form"><input name="confirm_username" autocomplete="off" required placeholder="Gõ {{ user.username }} để xác nhận" aria-label="Xác nhận tên đăng nhập"><button class="button button-danger" type="submit">Xóa vĩnh viễn</button></form></details>{% endif %}
+    </div>{% endfor %}
   </div></section>
   <section class="card"><h2>Tạo tài khoản</h2><form method="post" class="form-grid">
     <label>Tên hiển thị <input name="display_name"></label>

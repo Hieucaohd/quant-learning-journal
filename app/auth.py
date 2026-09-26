@@ -5,7 +5,7 @@ from flask import (Blueprint, abort, current_app, flash, g, redirect, render_tem
                    request, session, url_for)
 from werkzeug.security import check_password_hash, generate_password_hash
 
-from .db import create_user, get_db
+from .db import create_user, delete_user_account, get_db
 
 
 bp = Blueprint("auth", __name__)
@@ -157,6 +157,51 @@ def reset_password(user_id):
                          (generate_password_hash(password), user_id))
         get_db().commit()
         flash("Đã đặt lại mật khẩu.", "success")
+    return redirect(url_for("auth.users"))
+
+
+@bp.post("/admin/users/<int:user_id>/display-name")
+@admin_required
+def update_display_name(user_id):
+    display_name = request.form.get("display_name", "").strip()
+    user = get_db().execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if user is None:
+        abort(404)
+    if len(display_name) > 80:
+        flash("Tên hiển thị tối đa 80 ký tự.", "error")
+    else:
+        # An empty name falls back to the username, as when creating an account.
+        get_db().execute("UPDATE users SET display_name=? WHERE id=?",
+                         (display_name or user["username"], user_id))
+        get_db().commit()
+        flash(f"Đã đổi tên hiển thị của @{user['username']}.", "success")
+    return redirect(url_for("auth.users"))
+
+
+@bp.post("/admin/users/<int:user_id>/delete")
+@admin_required
+def delete_user(user_id):
+    db = get_db()
+    user = db.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if user is None:
+        abort(404)
+    admins = db.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
+    if user_id == g.user["id"]:
+        flash("Không thể tự xóa tài khoản đang đăng nhập.", "error")
+    elif user["role"] == "admin" and admins <= 1:
+        flash("Không thể xóa quản trị viên cuối cùng.", "error")
+    elif request.form.get("confirm_username", "").strip() != user["username"]:
+        flash("Tên đăng nhập xác nhận chưa khớp. Tài khoản chưa bị xóa.", "error")
+    else:
+        try:
+            backup_id = delete_user_account(user_id, g.user["id"])
+            db.commit()
+        except sqlite3.Error as exc:
+            db.rollback()
+            flash(f"Không thể xóa tài khoản: {exc}", "error")
+        else:
+            flash(f"Đã xóa @{user['username']} và dữ liệu học tập của tài khoản này. "
+                  f"Bản sao lưu #{backup_id} được giữ trong cơ sở dữ liệu.", "success")
     return redirect(url_for("auth.users"))
 
 

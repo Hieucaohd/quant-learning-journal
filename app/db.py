@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from datetime import datetime
 from pathlib import Path
@@ -357,6 +358,12 @@ def close_db(_error=None):
 def init_app(app):
     app.teardown_appcontext(close_db)
     if not app.config.get("AUTO_MIGRATE_DATABASE", True):
+        with app.app_context():
+            version = stored_schema_version()
+            if version is None or version < SCHEMA_VERSION:
+                app.logger.warning(
+                    "Database schema v%s is older than the code (v%s); run "
+                    "scripts/migrate_database.py to upgrade it.", version, SCHEMA_VERSION)
         return
     with app.app_context():
         db = get_db()
@@ -366,6 +373,16 @@ def init_app(app):
                 or int(version["value"]) < SCHEMA_VERSION):
             migrate_database()
         claim_passwordless_admin()
+
+
+def stored_schema_version():
+    """Read-only: the schema version recorded in the database, or None."""
+    try:
+        row = get_db().execute(
+            "SELECT value FROM app_meta WHERE key='schema_version'").fetchone()
+    except sqlite3.Error:
+        return None
+    return int(row["value"]) if row else None
 
 
 def claim_passwordless_admin():
@@ -420,6 +437,60 @@ def create_user(username, password, role="user", display_name=""):
          display_name.strip() or username)).lastrowid
     ensure_user_defaults(user_id)
     return user_id
+
+
+def delete_user_account(user_id, actor_id):
+    """Delete a user and everything they own, after saving it to deletion_backups.
+
+    Rows are deleted explicitly rather than through ON DELETE CASCADE because the
+    remote libSQL connection may not enforce foreign keys. The caller commits.
+    Returns the id of the backup row.
+    """
+    db = get_db()
+    course_scope = "SELECT id FROM courses WHERE owner_user_id=?"
+    lecture_scope = f"SELECT id FROM lectures WHERE course_id IN ({course_scope})"
+    plan_scope = "SELECT id FROM study_plans WHERE owner_user_id=?"
+    owned = {
+        "users": ("SELECT * FROM users WHERE id=?", 1),
+        "courses": ("SELECT * FROM courses WHERE owner_user_id=?", 1),
+        "lectures": (f"SELECT * FROM lectures WHERE course_id IN ({course_scope})", 1),
+        "lecture_tasks": (f"SELECT * FROM lecture_tasks WHERE lecture_id IN ({lecture_scope})", 1),
+        "journals": (f"SELECT * FROM journals WHERE user_id=? OR course_id IN ({course_scope})", 2),
+        "study_plans": ("SELECT * FROM study_plans WHERE owner_user_id=?", 1),
+        "plan_courses": (f"""SELECT * FROM plan_courses WHERE plan_id IN ({plan_scope})
+            OR course_id IN ({course_scope})""", 2),
+        "plan_shares": (f"SELECT * FROM plan_shares WHERE user_id=? OR plan_id IN ({plan_scope})", 2),
+        "schedule_allocations": (
+            f"SELECT * FROM schedule_allocations WHERE course_id IN ({course_scope})", 1),
+        "schedule_events": (f"SELECT * FROM schedule_events WHERE course_id IN ({course_scope})", 1),
+        "completion_events": (
+            f"SELECT * FROM completion_events WHERE course_id IN ({course_scope})", 1),
+        "missed_deadlines": (
+            f"SELECT * FROM missed_deadlines WHERE lecture_id IN ({lecture_scope})", 1),
+        "user_capacity_profiles": ("SELECT * FROM user_capacity_profiles WHERE user_id=?", 1),
+        "user_capacity_overrides": ("SELECT * FROM user_capacity_overrides WHERE user_id=?", 1),
+        "user_capacity_events": ("SELECT * FROM user_capacity_events WHERE user_id=?", 1),
+        "user_reviews": ("SELECT * FROM user_reviews WHERE user_id=?", 1),
+        "plan_imports": ("SELECT * FROM plan_imports WHERE user_id=?", 1),
+    }
+    snapshot = {table: [dict(row) for row in db.execute(sql, (user_id,) * count)]
+                for table, (sql, count) in owned.items()}
+    user = snapshot["users"][0]
+    backup_id = db.execute("""INSERT INTO deletion_backups (label, payload_json, user_id)
+        VALUES (?, ?, ?)""", (f"user-{user['username']}",
+                              json.dumps(snapshot, ensure_ascii=False, default=str),
+                              actor_id)).lastrowid
+    # Children first, so the order is valid whether or not foreign keys are enforced.
+    for table in ("journals", "plan_courses", "plan_shares", "missed_deadlines",
+                  "schedule_allocations", "schedule_events", "completion_events",
+                  "lecture_tasks", "lectures", "courses", "study_plans",
+                  "user_capacity_profiles", "user_capacity_overrides",
+                  "user_capacity_events", "user_reviews", "plan_imports"):
+        sql, count = owned[table]
+        db.execute(sql.replace("SELECT *", "DELETE", 1), (user_id,) * count)
+    db.execute("UPDATE course_catalogs SET created_by=NULL WHERE created_by=?", (user_id,))
+    db.execute("DELETE FROM users WHERE id=?", (user_id,))
+    return backup_id
 
 
 def _unique_course_name(display_name, user_id):

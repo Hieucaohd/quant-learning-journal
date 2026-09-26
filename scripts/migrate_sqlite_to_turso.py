@@ -77,6 +77,8 @@ def main():
         # Never create a password-less admin on the remote database.
         "APP_PASSWORD": os.environ.get("APP_PASSWORD", ""),
         "TESTING": True,
+        # Run by hand to prepare an empty Turso database, so its schema is created.
+        "AUTO_MIGRATE_DATABASE": True,
     })
     source = sqlite3.connect(source_path)
     source.row_factory = sqlite3.Row

@@ -1,8 +1,10 @@
+import sqlite3
 import tempfile
+from contextlib import closing
 import unittest
 from pathlib import Path
 
-from app import create_app
+from app import create_app, is_remote_database
 from app.db import get_db
 
 
@@ -222,6 +224,73 @@ class MultiUserTest(unittest.TestCase):
             self.assertEqual(client.get("/setup").status_code, 302)
             self.assertEqual(client.get("/login").status_code, 200)
             self.assertEqual(self.login(client, "admin", "admin-password").status_code, 302)
+
+    def test_admin_can_rename_and_delete_accounts_with_backup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = self.make_app(directory)
+            client = app.test_client()
+            self.login(client, "admin", "admin-password")
+            for username in ("bob", "alice"):
+                client.post("/admin/users", data={
+                    "username": username, "password": f"{username}-password", "role": "user"})
+            with app.app_context():
+                db = get_db()
+                bob, alice = (db.execute("SELECT id FROM users WHERE username=?", (name,))
+                              .fetchone()[0] for name in ("bob", "alice"))
+            client.post(f"/admin/users/{bob}/display-name", data={"display_name": "Phượng Anh"})
+            page = client.get("/admin/users").get_data(as_text=True)
+            self.assertIn("Phượng Anh", page)
+            self.assertIn("@bob", page)
+
+            client.post("/logout")
+            self.login(client, "bob", "bob-password")
+            client.post("/courses", data={"name": "Khóa của Bob", "estimated_hours": "5"})
+            client.post("/plans", data={"name": "Kế hoạch Bob", "priority": "1"})
+            with app.app_context():
+                db = get_db()
+                course_id = db.execute("SELECT id FROM courses WHERE owner_user_id=?",
+                                       (bob,)).fetchone()[0]
+                plan_id = db.execute("SELECT id FROM study_plans WHERE owner_user_id=?",
+                                     (bob,)).fetchone()[0]
+            client.post(f"/plans/{plan_id}/courses", data={"course_id": course_id})
+            client.post(f"/plans/{plan_id}/share", data={"username": "alice"})
+            client.post("/journal", data={"date": "2026-09-20", "course_id": course_id,
+                                          "hours": "1", "difficulty": "Dễ"})
+            client.post("/logout")
+
+            self.login(client, "admin", "admin-password")
+            client.post(f"/admin/users/{bob}/delete", data={"confirm_username": "bobx"})
+            client.post("/admin/users/1/delete", data={"confirm_username": "admin"})
+            with app.app_context():
+                self.assertEqual(get_db().execute("SELECT COUNT(*) FROM users").fetchone()[0], 3)
+            client.post(f"/admin/users/{bob}/delete", data={"confirm_username": "bob"})
+            with app.app_context():
+                db = get_db()
+                self.assertIsNone(db.execute("SELECT 1 FROM users WHERE id=?", (bob,)).fetchone())
+                for table, column in (("courses", "owner_user_id"), ("study_plans", "owner_user_id"),
+                                      ("journals", "user_id"), ("user_capacity_profiles", "user_id")):
+                    self.assertEqual(db.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE {column}=?", (bob,)).fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM plan_shares").fetchone()[0], 0)
+                self.assertIsNotNone(db.execute("SELECT 1 FROM users WHERE id=?", (alice,)).fetchone())
+                self.assertIsNotNone(db.execute(
+                    "SELECT 1 FROM course_catalogs WHERE name='Khóa của Bob'").fetchone())
+                backup = db.execute("""SELECT label, payload_json FROM deletion_backups
+                    WHERE label='user-bob'""").fetchone()
+                self.assertIn("Khóa của Bob", backup["payload_json"])
+                self.assertIn("Kế hoạch Bob", backup["payload_json"])
+
+    def test_remote_databases_are_not_migrated_automatically(self):
+        self.assertTrue(is_remote_database("libsql://db.turso.io"))
+        self.assertTrue(is_remote_database("https://db.turso.io"))
+        self.assertFalse(is_remote_database("C:/tmp/target.db"))
+        self.assertFalse(is_remote_database(""))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "journal.sqlite3"
+            create_app({"DATABASE": str(path), "AUTO_MIGRATE_DATABASE": False})
+            with closing(sqlite3.connect(path)) as connection:
+                self.assertEqual(connection.execute(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name='users'").fetchone()[0], 0)
 
     def test_user_can_change_own_password(self):
         with tempfile.TemporaryDirectory() as directory:
