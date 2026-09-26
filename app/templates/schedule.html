@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% macro filter_fields(selected_ids) %}<input type="hidden" name="filter" value="1">{% for plan_id in selected_ids %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endfor %}{% endmacro %}
+{% block title %}Lịch học · Nhật ký học Quant{% endblock %}
+{% block content %}
+<div id="schedule-page" aria-live="polite">
+<div class="page-heading">
+  <div><p class="eyebrow">KẾ HOẠCH THEO NGÀY</p><h1>Lịch học</h1><p class="muted">Việc học được xếp theo số giờ bạn có thể học mỗi ngày.</p></div>
+  <div class="schedule-finish"><span class="label">Dự kiến học xong toàn bộ</span><strong>{{ 'Chưa có khóa học' if not courses else (all_done or ('Chưa đủ dữ liệu' if missing else 'Đã hoàn thành')) }}</strong></div>
+</div>
+<section class="card"><form method="get" class="plan-filter"><input type="hidden" name="filter" value="1"><input type="hidden" name="date" value="{{ selected.isoformat() }}"><strong>Hiển thị kế hoạch:</strong>{% for plan in plans %}<label><input type="checkbox" name="plan_id" value="{{ plan.id }}" {% if plan.id in selected_ids %}checked{% endif %}> {{ plan.name }}{% if plan.status != 'Đang hoạt động' %} (tạm dừng){% endif %}</label>{% endfor %}<button class="button" type="submit">Áp dụng bộ lọc</button></form><p class="muted small">Các kế hoạch đang hoạt động chia sẻ quỹ giờ học mỗi ngày. Khóa nằm trong nhiều kế hoạch chỉ được xếp một lần.</p></section>
+{% if missing %}<div class="notice error">Chưa thể dự báo đầy đủ: {% for course in missing %}{{ course.name }}{% if not loop.last %}, {% endif %}{% endfor %} chưa có bài học hoặc số giờ ước tính.</div>{% endif %}
+
+<section class="stats schedule-answers" aria-label="Tình trạng học tập hôm nay">
+  <article class="card stat"><span class="label">1. Hôm nay mình cần làm gì?</span><strong>{{ '%g'|format(today_tasks|sum(attribute='hours')) }} giờ</strong><span class="muted small">{{ today_tasks|length }} phần việc đã được xếp</span><a href="{{ url_for('main.schedule', date=today.isoformat(), filter=1, plan_id=selected_ids) }}">Xem việc hôm nay →</a></article>
+  <article class="card stat"><span class="label">2. Mình đã bỏ lỡ gì?</span><strong>{{ pending|length }} mục</strong><span class="muted small">{{ 'Cần ghi lý do và lùi hạn' if pending else 'Không có phần việc quá hạn' }}</span>{% if pending %}<a href="#overdue-items">Xử lý mục quá hạn →</a>{% endif %}</article>
+  <article class="card stat"><span class="label">3. Có cần điều chỉnh gì không?</span><strong>{{ 'Có' if pending or missing else 'Không' }}</strong><span class="muted small">{% if pending %}Lịch đang chờ xử lý việc quá hạn{% elif missing %}Hãy thêm phần việc và số giờ cho khóa học{% else %}Lịch hiện đã có đủ dữ liệu{% endif %}</span></article>
+</section>
+
+<div class="two-col wide-left">
+  <section class="card">
+    <div class="section-heading"><h2>Tháng {{ '%02d'|format(selected.month) }}/{{ selected.year }}</h2><div class="period-nav"><a href="{{ url_for('main.schedule', date=prev_month.isoformat(), filter=1, plan_id=selected_ids) }}">← Tháng trước</a><a href="{{ url_for('main.schedule', date=today.isoformat(), filter=1, plan_id=selected_ids) }}">Hôm nay</a><a href="{{ url_for('main.schedule', date=next_month.isoformat(), filter=1, plan_id=selected_ids) }}">Tháng sau →</a></div></div>
+    <div class="calendar-grid">{% for name in ['Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7','CN'] %}<div class="calendar-weekday">{{ name }}</div>{% endfor %}
+      {% for week in calendar_weeks %}{% for day in week %}{% set summary = day_summaries.get(day.isoformat()) %}<a class="calendar-day {% if day.month != selected.month %}outside{% endif %} {% if day == selected %}selected{% endif %} {% if day == today %}today{% endif %}" href="{{ url_for('main.schedule', date=day.isoformat(), filter=1, plan_id=selected_ids) }}"><strong>{{ day.day }}</strong>{% if summary %}<small>{{ '%g'|format(summary.hours) }} giờ · {{ summary.courses }} khóa</small><span class="calendar-plans">{{ summary.plans|join(' · ') }}</span>{% endif %}</a>{% endfor %}{% endfor %}
+    </div>
+  </section>
+  <section class="card" id="day-detail"><h2>Ngày {{ selected.isoformat() }}</h2><p class="muted">Có thể học {{ '%g'|format(capacity) }} giờ · Đã lên lịch {{ '%g'|format(day_tasks|sum(attribute='hours')) }} giờ</p>
+    {% if day_tasks %}<div class="day-tasks">{% for item in day_tasks %}<article class="day-task">
+      <p class="eyebrow">{{ item.course_name }} · {{ '%g'|format(item.hours) }} giờ</p><p class="muted small">Kế hoạch: {{ plan_labels.get(item.course_id, [])|join(', ') }}</p>
+      {% if item.task_id %}
+        <h3>Bài {{ item.lecture_number }} · {{ task_types[item.part_kind] }}: {{ item.part_title }}</h3>
+        <p>{{ item.part_content or item.content or 'Chưa có mô tả chi tiết.' }}</p><p class="muted small">Hạn phần việc: {{ item.part_deadline or 'Đang tính lại' }} · {{ item.part_status }}</p>
+        {% if item.part_status != 'Hoàn thành' and selected <= today %}
+          <form method="post" action="{{ url_for('main.complete_task', task_id=item.task_id) }}" class="task-action">{{ filter_fields(selected_ids) }}<input type="hidden" name="completed_at" value="{{ selected.isoformat() }}"><input type="hidden" name="return_date" value="{{ selected.isoformat() }}"><input name="reason" placeholder="Lý do nếu hoàn thành trễ"><button class="button" type="submit">✓ Hoàn thành phần việc</button></form>
+          {% if item.part_deadline and item.part_deadline <= today.isoformat() %}<form method="post" action="{{ url_for('main.miss_task', task_id=item.task_id) }}" class="task-action">{{ filter_fields(selected_ids) }}<input type="hidden" name="return_date" value="{{ selected.isoformat() }}"><input name="reason" required placeholder="Vì sao chưa hoàn thành?"><button class="button" type="submit">Chưa xong · Lùi hạn</button></form>{% endif %}
+        {% endif %}
+      {% elif item.lecture_id %}
+        <h3>Bài {{ item.lecture_number }} · {{ item.title or 'Chưa đặt tiêu đề' }}</h3><p>{{ item.content or 'Mở khóa học để thêm nội dung cụ thể.' }}</p><p class="muted small">Hạn của bài: {{ item.deadline or 'Đang tính lại' }} · {{ item.status }}</p>
+        {% if item.status != 'Hoàn thành' and selected <= today %}
+          <form method="post" action="{{ url_for('main.complete_lecture', lecture_id=item.lecture_id) }}" class="task-action">{{ filter_fields(selected_ids) }}<input type="hidden" name="completed_at" value="{{ selected.isoformat() }}"><input type="hidden" name="return_date" value="{{ selected.isoformat() }}"><input name="reason" placeholder="Lý do nếu hoàn thành trễ"><button class="button" type="submit">✓ Hoàn thành bài</button></form>
+          {% if item.deadline and item.deadline <= today.isoformat() %}<form method="post" action="{{ url_for('main.miss_lecture', lecture_id=item.lecture_id) }}" class="task-action">{{ filter_fields(selected_ids) }}<input type="hidden" name="return_date" value="{{ selected.isoformat() }}"><input name="reason" required placeholder="Vì sao chưa hoàn thành?"><button class="button" type="submit">Chưa xong · Lùi hạn</button></form>{% endif %}
+        {% endif %}
+      {% else %}<h3>Học nội dung khóa học</h3><p class="muted small">Hãy thêm bài học để có kế hoạch chi tiết.</p>{% endif %}
+    </article>{% endfor %}</div>{% else %}<p class="empty">Chưa có việc học được lên lịch cho ngày này.</p>{% endif %}
+  </section>
+</div>
+{% if pending %}
+<section class="card overdue" id="overdue-items"><h2>Phần việc quá hạn cần xử lý</h2><p class="muted">Ghi lý do cho từng mục để tính lại lịch.</p>
+  {% for item in pending %}<div class="task"><strong>{{ item.course_name }} · Bài {{ item.lecture_number }}{% if item.task_id %} · {{ item.part_title }}{% endif %}</strong><p class="muted small">Hạn cũ: {{ item.deadline }}</p>
+    <form method="post" action="{{ url_for('main.miss_task', task_id=item.task_id) if item.task_id else url_for('main.miss_lecture', lecture_id=item.id) }}" class="inline-reason">{{ filter_fields(selected_ids) }}<input type="hidden" name="return_date" value="{{ selected.isoformat() }}"><input name="reason" required placeholder="Lý do chưa hoàn thành"><button class="button" type="submit">Ghi lý do và lùi hạn</button></form>
+  </div>{% endfor %}
+</section>
+{% endif %}
+<section class="card"><div class="section-heading"><h2>Dự báo theo khóa học</h2><span class="muted small">Dựa trên thời lượng còn lại và quỹ giờ mỗi ngày</span></div><div class="table-wrap"><table><thead><tr><th>Khóa học</th><th>Tiến độ giờ học</th><th>Dự kiến kết thúc</th><th>Nguồn thời lượng</th></tr></thead><tbody>{% for course in courses %}<tr><td><a href="{{ url_for('main.course_detail', course_id=course.id) }}">{{ course.name }}</a></td><td>{{ '%g'|format(course.remaining_hours_total) }}/{{ '%g'|format(course.total_hours) }} giờ còn lại · {{ course.display_progress }}%</td><td>{{ 'Đã hoàn thành' if course.status == 'Hoàn thành' else projections.get(course.id, 'Chưa đủ dữ liệu') }}</td><td>{{ course.lecture_count ~ ' bài học' if course.lecture_count else ('Tổng giờ của khóa' if course.estimated_hours else 'Chưa có') }}</td></tr>{% endfor %}</tbody></table></div></section>
+<div class="two-col">
+  <section class="card"><h2>Giờ học theo tuần</h2><p class="muted small">Đặt ngày áp dụng và lý do. Lịch từ hôm nay trở đi sẽ được tính lại.</p><form method="post" action="{{ url_for('main.capacity_profile') }}" class="form-grid"><label>Áp dụng từ ngày <input type="date" name="effective_from" value="{{ today.isoformat() }}" min="{{ today.isoformat() }}" required></label><div class="capacity-grid">{% for name in ['Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7','Chủ nhật'] %}<label>{{ name }}<input type="number" name="day_{{ loop.index0 }}" min="0" max="24" step="0.25" value="{{ active_hours[loop.index0] }}" required></label>{% endfor %}</div><label>Lý do thay đổi <textarea name="reason" rows="2" required placeholder="Ví dụ: từ tháng sau chỉ còn 2 giờ các ngày thường"></textarea></label><button class="button button-dark" type="submit">Cập nhật và tính lại lịch</button></form></section>
+  <section class="card"><h2>Đổi giờ cho một ngày</h2><p class="muted small">Dùng khi bạn bận hoặc có thêm thời gian vào một ngày cụ thể.</p><form method="post" action="{{ url_for('main.capacity_override') }}" class="form-grid"><label>Ngày <input type="date" name="study_date" value="{{ selected.isoformat() if selected >= today else today.isoformat() }}" min="{{ today.isoformat() }}" required></label><label>Số giờ có thể học <input type="number" name="hours" min="0" max="24" step="0.25" value="{{ capacity }}" required></label><label>Lý do <textarea name="reason" rows="2" required placeholder="Ví dụ: có lịch cá nhân"></textarea></label><button class="button button-dark" type="submit">Cập nhật ngày này</button></form>{% if overrides %}<h3>Ngày đã điều chỉnh</h3><ul>{% for item in overrides %}<li>{{ item.study_date }}: {{ '%g'|format(item.hours) }} giờ · {{ item.reason }}</li>{% endfor %}</ul>{% endif %}</section>
+</div>
+<section class="card"><h2>Lịch sử thay đổi hạn hoàn thành</h2>{% if events %}<div class="table-wrap"><table><thead><tr><th>Thời điểm</th><th>Phần việc</th><th>Hạn cũ</th><th>Hạn mới</th><th>Lý do</th></tr></thead><tbody>{% for event in events %}<tr><td>{{ event.changed_at }}</td><td>{{ event.course_name }}{% if event.lecture_number %} · Bài {{ event.lecture_number }}{% endif %}{% if event.part_title %} · {{ event.part_title }}{% endif %}</td><td>{{ event.old_deadline or '—' }}</td><td>{{ event.new_deadline or '—' }}</td><td>{{ event.reason }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty">Chưa có thay đổi.</p>{% endif %}<h3>Thay đổi giờ học</h3>{% if capacity_events %}<ul>{% for event in capacity_events %}<li>{{ event.created_at }} · {{ event.effective_date }} · {{ event.kind }}: {{ event.reason }}</li>{% endfor %}</ul>{% else %}<p class="empty">Chưa có thay đổi.</p>{% endif %}</section>
+</div>
+{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', filename='schedule.js') }}" defer></script>{% endblock %}

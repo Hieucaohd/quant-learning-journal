@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:quant-learning-journal:plan-format-v1",
+  "title": "Kế hoạch phần việc học tập cho Quant Learning Journal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "courses"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "courses": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 100,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "lectures"],
+        "properties": {
+          "name": {"type": "string", "minLength": 1, "maxLength": 200},
+          "description": {"type": "string", "maxLength": 1000},
+          "lectures": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["number", "title", "tasks"],
+              "properties": {
+                "number": {"type": "integer", "minimum": 1, "maximum": 10000},
+                "title": {"type": "string", "minLength": 1, "maxLength": 200},
+                "content": {"type": "string", "maxLength": 3000},
+                "tasks": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 100,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["type", "title", "hours"],
+                    "properties": {
+                      "type": {
+                        "enum": ["video", "exercises", "review", "reading", "project", "other"]
+                      },
+                      "title": {"type": "string", "minLength": 1, "maxLength": 200},
+                      "content": {"type": "string", "maxLength": 3000},
+                      "hours": {"type": "number", "minimum": 0.01, "maximum": 100, "multipleOf": 0.01}
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

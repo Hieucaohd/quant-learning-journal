@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "courses": [
+    {
+      "name": "MIT 18.01",
+      "description": "Giải tích một biến",
+      "lectures": [
+        {
+          "number": 13,
+          "title": "Bài 13",
+          "content": "Thay bằng chủ đề đúng từ đề cương bạn đang sử dụng.",
+          "tasks": [
+            {
+              "type": "video",
+              "title": "Xem bài giảng và ghi ý chính",
+              "content": "Ghi định nghĩa, ví dụ và câu hỏi còn chưa rõ.",
+              "hours": 1.5
+            },
+            {
+              "type": "exercises",
+              "title": "Làm bài tập áp dụng",
+              "content": "Đối chiếu lời giải sau khi tự làm.",
+              "hours": 1.25
+            },
+            {
+              "type": "review",
+              "title": "Ôn lại và tự kiểm tra",
+              "content": "Tóm tắt điều đã hiểu và lỗi cần sửa.",
+              "hours": 0.75
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
