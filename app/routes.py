@@ -601,10 +601,10 @@ def download_ai_kit():
     output = BytesIO()
     with ZipFile(output, "w", ZIP_DEFLATED) as archive:
         for name, content in ai_kit_files(current_user_id()).items():
-            archive.writestr(f"quant-ai-kit/{name}", content)
+            archive.writestr(f"ai-kit-khoa-hoc/{name}", content)
     output.seek(0)
     return send_file(output, mimetype="application/zip", as_attachment=True,
-                     download_name=f"quant-ai-kit-{date.today().isoformat()}.zip")
+                     download_name=f"ai-kit-khoa-hoc-{date.today().isoformat()}.zip")
 
 
 @bp.route("/plans", methods=["GET", "POST"])
@@ -1457,4 +1457,4 @@ def export():
             archive.writestr(name, content)
     output.seek(0)
     return send_file(output, mimetype="application/zip", as_attachment=True,
-                     download_name="quant-learning-export.zip")
+                     download_name=f"lich-ke-hoach-{date.today().isoformat()}.zip")

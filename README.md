@@ -1,6 +1,6 @@
-﻿# Nhật ký học Quant
+﻿# Lịch Kế Hoạch
 
-Ứng dụng ghi lại quá trình học theo lộ trình Quant Research. Giao diện web chạy bằng Flask; bản local lưu dữ liệu trong SQLite tại `data/journal.sqlite3`. Bạn có thể xuất Markdown và JSON để tải lên ChatGPT khi cần phân tích tiến độ. Ứng dụng không cần khóa API và bản local có thể chạy không cần kết nối mạng.
+Ứng dụng lập kế hoạch và xếp lịch theo số giờ bạn có mỗi ngày. Mỗi kế hoạch có thể thuộc nhiều loại; hiện hỗ trợ kế hoạch gồm các khóa học. Giao diện web chạy bằng Flask; bản local lưu dữ liệu trong SQLite tại `data/journal.sqlite3`. Bạn có thể xuất Markdown và JSON để tải lên ChatGPT khi cần phân tích tiến độ. Ứng dụng không cần khóa API và bản local có thể chạy không cần kết nối mạng.
 
 ## Cài đặt và chạy
 

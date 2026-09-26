@@ -127,7 +127,7 @@ def build_export(export_dir):
             (row["understanding"] is not None and row["understanding"] <= 5)]
     next_plan = next((row["next_plan"] for row in reversed(journals) if row["next_plan"]), "—")
 
-    summary = ["# Tiến độ học Quant", "", f"Ngày xuất: {date.today().isoformat()}", "",
+    summary = ["# Tiến độ kế hoạch", "", f"Ngày xuất: {date.today().isoformat()}", "",
                f"Khóa học hiện tại: {current['name'] if current else '—'}", "",
                f"Tổng số giờ học: {total_hours:g}", "", "## Khóa học", ""]
     for course in courses:

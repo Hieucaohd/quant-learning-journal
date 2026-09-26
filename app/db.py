@@ -623,7 +623,7 @@ def migrate_plans():
         return
     admin_id = db.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()[0]
     plan_id = db.execute("""INSERT INTO study_plans (name, description, priority, owner_user_id)
-        VALUES ('Lộ trình Quant', 'Lộ trình học Quant hiện tại', 1, ?)""",
+        VALUES ('Kế hoạch đầu tiên', 'Kế hoạch mặc định', 1, ?)""",
         (admin_id,)).lastrowid
     for position, row in enumerate(db.execute(
             "SELECT id FROM courses WHERE owner_user_id=? ORDER BY id", (admin_id,)), 1):

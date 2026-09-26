@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Nhìn lại · Nhật ký học Quant{% endblock %}
+{% block title %}Nhìn lại · Lịch Kế Hoạch{% endblock %}
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">NHÌN LẠI QUÁ TRÌNH HỌC</p><h1>Nhìn lại {{ 'tuần' if period == 'week' else 'tháng' }}</h1><p class="muted">{{ start.isoformat() }} đến {{ end.isoformat() }}</p></div><div class="button-group"><a class="button" href="{{ url_for('main.reviews', period='week', date=selected) }}">Theo tuần</a><a class="button" href="{{ url_for('main.reviews', period='month', date=selected) }}">Theo tháng</a></div></div>
 <div class="period-nav"><a href="{{ url_for('main.reviews', period=period, date=previous.isoformat()) }}">← Kỳ trước</a><a href="{{ url_for('main.reviews', period=period) }}">Kỳ hiện tại</a><a href="{{ url_for('main.reviews', period=period, date=following.isoformat()) }}">Kỳ sau →</a></div>

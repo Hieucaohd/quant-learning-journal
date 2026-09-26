@@ -1,4 +1,4 @@
 {% extends 'base.html' %}
-{% block title %}Sửa nhật ký · Nhật ký học Quant{% endblock %}
+{% block title %}Sửa nhật ký · Lịch Kế Hoạch{% endblock %}
 {% block content %}<div class="page-heading"><div><a class="back-link" href="{{ url_for('main.journal') }}">← Nhật ký</a><h1>Sửa buổi học</h1></div></div>
 <section class="card narrow"><form method="post" class="form-grid">{% include '_journal_form.html' %}<button class="button button-dark" type="submit">Lưu thay đổi</button></form><form method="post" action="{{ url_for('main.journal_delete', entry_id=entry.id) }}" onsubmit="return confirm('Xóa nhật ký này?')"><button class="button button-danger" type="submit">Xóa nhật ký</button></form></section>{% endblock %}

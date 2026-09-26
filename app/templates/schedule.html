@@ -1,11 +1,11 @@
 {% extends 'base.html' %}
 {% macro filter_fields(selected_ids) %}<input type="hidden" name="filter" value="1">{% for plan_id in selected_ids %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endfor %}{% endmacro %}
-{% block title %}Lịch học · Nhật ký học Quant{% endblock %}
+{% block title %}Lịch · Lịch Kế Hoạch{% endblock %}
 {% block content %}
 <div id="schedule-page" aria-live="polite">
 <div class="page-heading">
-  <div><p class="eyebrow">KẾ HOẠCH THEO NGÀY</p><h1>Lịch học</h1><p class="muted">Việc học được xếp theo số giờ bạn có thể học mỗi ngày.</p></div>
-  <div class="schedule-finish"><span class="label">Dự kiến học xong toàn bộ</span><strong>{{ 'Chưa có khóa học' if not courses else (all_done or ('Chưa đủ dữ liệu' if missing else 'Đã hoàn thành')) }}</strong></div>
+  <div><p class="eyebrow">KẾ HOẠCH THEO NGÀY</p><h1>Lịch</h1><p class="muted">Việc trong các kế hoạch được xếp theo số giờ bạn có mỗi ngày.</p></div>
+  <div class="schedule-finish"><span class="label">Dự kiến hoàn thành toàn bộ</span><strong>{{ 'Chưa có khóa học' if not courses else (all_done or ('Chưa đủ dữ liệu' if missing else 'Đã hoàn thành')) }}</strong></div>
 </div>
 <section class="card"><form method="get" class="plan-filter"><input type="hidden" name="filter" value="1"><input type="hidden" name="date" value="{{ selected.isoformat() }}">{% for group, heading in [('mine', 'Kế hoạch của tôi'), ('shared', 'Được chia sẻ với tôi'), ('others', 'Người dùng khác (quản trị)')] %}{% set group_plans = plans|selectattr('group', 'equalto', group)|list %}{% if group_plans or group == 'mine' %}<fieldset class="plan-filter-group"><legend>{{ heading }}</legend>{% for plan in group_plans %}<label><input type="checkbox" name="plan_id" value="{{ plan.id }}" {% if plan.id in selected_ids %}checked{% endif %}> {{ plan.label }}{% if plan.status != 'Đang hoạt động' %} (tạm dừng){% endif %}</label>{% else %}<span class="muted small">Chưa có kế hoạch.</span>{% endfor %}</fieldset>{% endif %}{% endfor %}<button class="button" type="submit">Áp dụng bộ lọc</button></form><p class="muted small">Các kế hoạch đang hoạt động của bạn chia sẻ quỹ giờ học mỗi ngày. Lịch của người khác chỉ để xem và không tính vào giờ học của bạn.</p></section>
 {% if missing %}<div class="notice error">Chưa thể dự báo đầy đủ: {% for course in missing %}{{ course.name }}{% if not loop.last %}, {% endif %}{% endfor %} chưa có bài học hoặc số giờ ước tính.</div>{% endif %}

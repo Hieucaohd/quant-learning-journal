@@ -1,7 +1,7 @@
 {% extends 'base.html' %}
-{% block title %}Tổng quan · Nhật ký học Quant{% endblock %}
+{% block title %}Tổng quan · Lịch Kế Hoạch{% endblock %}
 {% block content %}
-<div class="page-heading"><div><p class="eyebrow">GÓC HỌC TẬP</p><h1>Tổng quan</h1><p class="muted">Theo dõi việc đã học và bước tiếp theo.</p></div><a class="button" href="{{ url_for('main.journal') }}">+ Ghi buổi học</a></div>
+<div class="page-heading"><div><p class="eyebrow">TỔNG QUAN KẾ HOẠCH</p><h1>Tổng quan</h1><p class="muted">Theo dõi tiến độ các kế hoạch và việc cần làm tiếp theo.</p></div><a class="button" href="{{ url_for('main.journal') }}">+ Ghi buổi học</a></div>
 <div class="stats">
   <section class="card stat"><span class="label">Tổng số giờ học</span><strong>{{ '%.1f'|format(total_hours) }}</strong><span class="muted">trên mục tiêu tham chiếu 700 giờ</span></section>
   <section class="card stat"><span class="label">Ngày học liên tiếp</span><strong>{{ streak }} <small>ngày</small></strong><span class="muted">Tính từ những ngày có nhật ký</span></section>
@@ -24,7 +24,7 @@
     {% if plans %}<p class="plan">{{ plans[0].next_plan }}</p><p class="muted small">Từ ngày {{ plans[0].date }} · {{ plans[0].course_name }}</p>{% else %}<p class="empty">Bước tiếp theo sẽ hiện ở đây sau khi bạn ghi một buổi học.</p>{% endif %}
   </section>
 </div>
-<section class="card"><div class="section-heading"><h2>Hôm nay nên học gì?</h2><a href="{{ url_for('main.schedule') }}">Mở lịch học →</a></div>{% if today_plan %}<ul>{% for task in today_plan %}<li>{{ task.course_name }} · {% if task.lecture_id %}Bài {{ task.lecture_number }}{% if task.part_title %} · {{ task.part_title }}{% endif %}{% else %}Nội dung khóa học{% endif %} · {{ '%g'|format(task.hours) }} giờ{% if task.part_content or task.content %} · {{ task.part_content or task.content }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="empty">Hôm nay chưa có việc học được lên lịch.</p>{% endif %}<p class="muted small">Dự kiến xong toàn bộ lộ trình: {{ projected_finish or 'Chưa đủ dữ liệu' }}</p></section>
+<section class="card"><div class="section-heading"><h2>Hôm nay cần làm gì?</h2><a href="{{ url_for('main.schedule') }}">Mở lịch →</a></div>{% if today_plan %}<ul>{% for task in today_plan %}<li>{{ task.course_name }} · {% if task.lecture_id %}Bài {{ task.lecture_number }}{% if task.part_title %} · {{ task.part_title }}{% endif %}{% else %}Nội dung khóa học{% endif %} · {{ '%g'|format(task.hours) }} giờ{% if task.part_content or task.content %} · {{ task.part_content or task.content }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="empty">Hôm nay chưa có việc học được lên lịch.</p>{% endif %}<p class="muted small">Dự kiến xong toàn bộ lộ trình: {{ projected_finish or 'Chưa đủ dữ liệu' }}</p></section>
 <section class="card"><div class="section-heading"><h2>Buổi học gần đây</h2><a href="{{ url_for('main.journal') }}">Xem nhật ký →</a></div>
   {% if recent %}<div class="table-wrap"><table><thead><tr><th>Ngày</th><th>Khóa học</th><th>Chủ đề</th><th>Số giờ</th><th>Mức độ hiểu</th></tr></thead><tbody>{% for entry in recent %}<tr><td>{{ entry.date }}</td><td>{{ entry.course_name }}</td><td>{{ entry.topic or '—' }}</td><td>{{ '%g'|format(entry.hours) }}</td><td>{{ entry.understanding or '—' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty">Chưa có buổi học nào.</p>{% endif %}
 </section>

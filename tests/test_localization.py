@@ -35,7 +35,7 @@ class VietnameseTextTest(unittest.TestCase):
                 journal = db.execute("SELECT difficulty, topic FROM journals").fetchone()
                 self.assertEqual(tuple(journal), ("Trung bình", "Ôn tập bài 1–12"))
                 files = build_export(app.config["EXPORT_DIR"])
-                self.assertIn("# Tiến độ học Quant", files["learning_summary.md"])
+                self.assertIn("# Tiến độ kế hoạch", files["learning_summary.md"])
                 self.assertEqual(json.loads(files["learning_data.json"])["journals"][0]["difficulty"],
                                  "Trung bình")
 
@@ -46,7 +46,7 @@ class VietnameseTextTest(unittest.TestCase):
                 self.assertEqual(response.status_code, 200, url)
                 self.assertIn('lang="vi"', response.get_data(as_text=True))
             home = client.get("/").get_data(as_text=True)
-            self.assertIn("Xuất dữ liệu học tập", home)
+            self.assertIn("Xuất dữ liệu", home)
             self.assertNotIn("Xuất cho ChatGPT", home)
             course_page = client.get("/courses/1").get_data(as_text=True)
             self.assertNotIn("Deadline:", course_page)

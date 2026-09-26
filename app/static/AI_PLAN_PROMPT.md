@@ -1,4 +1,4 @@
-# Yêu cầu AI tạo kế hoạch học để nhập vào Quant Learning Journal
+# Yêu cầu AI tạo kế hoạch khóa học để nhập vào Lịch Kế Hoạch
 
 Hãy dùng đề cương, danh sách bài học và tài liệu mà tôi cung cấp để chia **mỗi bài chưa hoàn thành** thành các phần việc cụ thể. Các phần việc có thể gồm xem video, đọc tài liệu, làm bài tập, ôn luyện hoặc thực hành. Ước tính số giờ còn cần cho từng phần việc, theo thứ tự nên làm.
 
@@ -21,4 +21,4 @@ Thông tin tôi cung cấp để lập kế hoạch:
 - Mức độ hiểu hiện tại và phần đã học:
 - Giới hạn hoặc ưu tiên về thời gian (nếu có):
 
-Sau khi nhận JSON, tôi sẽ mở **Nhập kế hoạch học**, xem trước và xác nhận. Ứng dụng sẽ từ chối bài đã hoàn thành hoặc bài đã có phần việc để tránh ghi đè tiến độ.
+Sau khi nhận JSON, tôi sẽ mở **Nhập kế hoạch**, xem trước và xác nhận. Ứng dụng sẽ từ chối bài đã hoàn thành hoặc bài đã có phần việc để tránh ghi đè tiến độ.

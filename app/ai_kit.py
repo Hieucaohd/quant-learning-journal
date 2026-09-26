@@ -104,7 +104,7 @@ GUIDE = """# Cách dùng bộ file này với ChatGPT
 3. Dán toàn bộ nội dung `PROMPT.md` vào ô chat (hoặc gõ "Hãy làm theo PROMPT.md"),
    điền các dòng còn trống ở cuối prompt rồi gửi.
 4. ChatGPT trả về một đối tượng JSON. Lưu thành file `.json` (UTF-8) hoặc sao chép nội dung.
-5. Trong Nhật ký học Quant, mở **Nhập kế hoạch học**, chọn file hoặc dán JSON, bấm
+5. Trong Lịch Kế Hoạch, mở **Nhập kế hoạch**, chọn file hoặc dán JSON, bấm
    **Kiểm tra và xem trước**, rồi **Xác nhận nhập**.
 
 Ứng dụng tự kiểm tra JSON và không ghi đè bài đã hoàn thành hoặc bài đã có phần việc.

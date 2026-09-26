@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:quant-learning-journal:plan-format-v1",
-  "title": "Kế hoạch phần việc học tập cho Quant Learning Journal",
+  "title": "Kế hoạch phần việc của khóa học cho Lịch Kế Hoạch",
   "type": "object",
   "additionalProperties": false,
   "required": ["schema_version", "courses"],

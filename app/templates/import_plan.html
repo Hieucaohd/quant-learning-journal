@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Nhập kế hoạch học · Nhật ký học Quant{% endblock %}
+{% block title %}Nhập kế hoạch · Lịch Kế Hoạch{% endblock %}
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">PHẦN VIỆC TỪ AI</p><h1>Nhập phần việc và thời lượng</h1><p class="muted">Dùng định dạng JSON phiên bản 1 để đưa các phần việc của từng bài vào lịch học. Khóa mới sẽ nằm trong danh mục; hãy thêm vào kế hoạch để hiện trên lịch.</p></div></div>
 <div class="two-col wide-left"><section class="card"><h2>Chọn tệp hoặc dán JSON</h2><form method="post" enctype="multipart/form-data" class="form-grid"><input type="hidden" name="mode" value="preview"><div class="form-field"><span class="field-label">Tệp .json (UTF-8)</span><div class="file-picker"><label class="button" for="plan-file">Chọn tệp JSON</label><span class="muted small" id="plan-file-name">Chưa chọn tệp</span></div><input id="plan-file" type="file" name="plan_file" accept=".json,application/json" hidden></div><p class="muted small">Nếu chọn tệp, hệ thống sẽ dùng nội dung tệp thay cho ô dán bên dưới.</p><label>Nội dung JSON <textarea name="payload" rows="15" spellcheck="false" placeholder='{"schema_version":1,"courses":[...]}' >{{ raw }}</textarea></label><button class="button button-dark" type="submit">Kiểm tra và xem trước</button></form></section>
