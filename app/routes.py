@@ -18,6 +18,7 @@ from .reports import (build_export, completed_work, courses_with_progress, perio
                       report_data, streak, work_summary)
 from .scheduler import (active_course_ids, capacity_on, course_deadlines, day_plan, ensure_plan,
                         pending_missed, replan)
+from .timezone import local_today
 from .plan_import import TASK_TYPES, apply_plan, inspect_plan, parse_plan
 
 
@@ -139,11 +140,11 @@ def refresh_schedule(reason):
     if pending_missed():
         flash("Có bài quá hạn cần ghi lý do trước khi tính lại lịch.", "error")
     else:
-        replan(date.today(), reason)
+        replan(local_today(), reason)
 
 
 def return_to_schedule():
-    values = {"date": request.form.get("return_date", date.today().isoformat())}
+    values = {"date": request.form.get("return_date", local_today().isoformat())}
     if request.form.get("filter") == "1":
         values["filter"] = 1
         values["plan_id"] = request.form.getlist("plan_id")
@@ -166,12 +167,12 @@ def update_item_deadline(kind, item_id):
             raise ValueError("Mục này đã hoàn thành; hãy sửa ngày hoàn thành thực tế")
         desired = parse_date(request.form.get("deadline", ""), True)
         if desired and course["start_date"] and desired < course["start_date"]:
-            if desired > date.today().isoformat():
+            if desired > local_today().isoformat():
                 raise ValueError("Chỉ có thể ghi nhận hoàn thành trước ngày bắt đầu nếu ngày đó đã qua")
             if kind == "lecture":
                 return complete_lecture(item_id, completed_at_override=desired)
             return complete_task(item_id, completed_at_override=desired)
-        if desired and desired < date.today().isoformat():
+        if desired and desired < local_today().isoformat():
             raise ValueError("Hạn trong quá khứ cần được ghi ở ô ngày hoàn thành thực tế")
         reason = request.form.get("reason", "").strip()
         if desired == item["manual_deadline"]:
@@ -182,7 +183,7 @@ def update_item_deadline(kind, item_id):
         last_event_id = db.execute(
             "SELECT COALESCE(MAX(id), 0) FROM schedule_events").fetchone()[0]
         db.execute(f"UPDATE {table} SET manual_deadline=? WHERE id=?", (desired, item_id))
-        replan(date.today(), f"Đổi hạn dự kiến: {reason}", preserve_overdue=True)
+        replan(local_today(), f"Đổi hạn dự kiến: {reason}", preserve_overdue=True)
         updated = db.execute(f"SELECT deadline FROM {table} WHERE id=?", (item_id,)).fetchone()
         final_deadline = updated["deadline"]
         if kind == "lecture":
@@ -229,7 +230,7 @@ def update_lecture_from_tasks(lecture_id, completed_day=None):
     any_done = any(row["status"] == "Hoàn thành" for row in rows)
     if all_done:
         done_day = max((row["completed_at"] for row in rows if row["completed_at"]),
-                       default=completed_day or date.today().isoformat())
+                       default=completed_day or local_today().isoformat())
         db.execute("""UPDATE lectures SET estimated_hours=?, remaining_hours=0, status='Hoàn thành',
             completed_at=?, completed_on_time=? WHERE id=?""",
             (estimated, done_day,
@@ -258,7 +259,7 @@ def dashboard():
     current = next((c for c in courses if c["status"] == "Đang học"), None)
     if current is None:
         current = next((c for c in courses if c["display_progress"] < 100), None)
-    today = date.today()
+    today = local_today()
     week_start = today - timedelta(days=today.weekday())
     week_days = [week_start + timedelta(days=offset) for offset in range(7)]
     work = completed_work()
@@ -284,7 +285,7 @@ def dashboard():
 @bp.get("/schedule")
 def schedule():
     db = get_db()
-    today = date.today()
+    today = local_today()
     try:
         ensure_plan()
     except ValueError as exc:
@@ -400,7 +401,7 @@ def capacity_profile():
     user_id = current_user_id()
     try:
         effective = parse_date(request.form["effective_from"])
-        if effective < date.today().isoformat():
+        if effective < local_today().isoformat():
             raise ValueError("Ngày áp dụng phải là hôm nay hoặc một ngày sau đó")
         reason = request.form.get("reason", "").strip()
         if not reason:
@@ -418,7 +419,7 @@ def capacity_profile():
             (user_id, effective_date, old_hours, new_hours, reason, kind)
             VALUES (?, ?, ?, ?, ?, 'lịch tuần')""",
             (user_id, effective, old_hours, encoded, reason))
-        replan(date.today(), f"Thay đổi số giờ học từ {effective}: {reason}")
+        replan(local_today(), f"Thay đổi số giờ học từ {effective}: {reason}")
         db.commit()
         flash("Đã cập nhật giờ học và tính lại các hạn hoàn thành.", "success")
     except (ValueError, KeyError) as exc:
@@ -433,7 +434,7 @@ def capacity_override():
     user_id = current_user_id()
     try:
         study_date = parse_date(request.form["study_date"])
-        if study_date < date.today().isoformat():
+        if study_date < local_today().isoformat():
             raise ValueError("Chỉ có thể đổi số giờ của hôm nay hoặc ngày sau")
         hours = positive_hours(request.form.get("hours"), True)
         reason = request.form.get("reason", "").strip()
@@ -449,7 +450,7 @@ def capacity_override():
             (user_id, effective_date, old_hours, new_hours, reason, kind)
             VALUES (?, ?, ?, ?, ?, 'ngày riêng')""",
             (user_id, study_date, str(old["hours"]) if old else None, str(hours), reason))
-        replan(date.today(), f"Đổi số giờ ngày {study_date}: {reason}")
+        replan(local_today(), f"Đổi số giờ ngày {study_date}: {reason}")
         db.commit()
         flash("Đã cập nhật ngày học và tính lại các hạn hoàn thành.", "success")
     except (ValueError, KeyError) as exc:
@@ -464,8 +465,8 @@ def complete_lecture(lecture_id, completed_at_override=None):
     lecture = required_row("lectures", lecture_id)
     try:
         completed = parse_date(completed_at_override or
-                               request.form.get("completed_at", date.today().isoformat()))
-        if completed > date.today().isoformat():
+                               request.form.get("completed_at", local_today().isoformat()))
+        if completed > local_today().isoformat():
             raise ValueError("Không thể đánh dấu hoàn thành cho ngày trong tương lai")
         already_done = lecture["status"] == "Hoàn thành"
         if already_done and completed == lecture["completed_at"]:
@@ -506,7 +507,7 @@ def complete_lecture(lecture_id, completed_at_override=None):
         replanned = False
         db.execute("SAVEPOINT completion_replan")
         try:
-            replan(date.today(), f"Cập nhật ngày hoàn thành bài {lecture['lecture_number']}",
+            replan(local_today(), f"Cập nhật ngày hoàn thành bài {lecture['lecture_number']}",
                    preserve_overdue=True)
             replanned = True
         except ValueError:
@@ -533,7 +534,7 @@ def miss_lecture(lecture_id):
             raise ValueError("Hãy ghi lý do trễ hạn ở từng phần việc của bài học")
         if lecture["status"] == "Hoàn thành" or not lecture["deadline"]:
             raise ValueError("Bài học không có hạn dự kiến đang chờ xử lý")
-        if lecture["deadline"] > date.today().isoformat():
+        if lecture["deadline"] > local_today().isoformat():
             raise ValueError("Chỉ ghi trễ hạn khi đến ngày hoàn thành dự kiến")
         reason = request.form.get("reason", "").strip()
         if not reason:
@@ -542,7 +543,7 @@ def miss_lecture(lecture_id):
         db.execute("""INSERT INTO missed_deadlines (lecture_id, old_deadline, reason)
             VALUES (?, ?, ?)""", (lecture_id, old, reason))
         db.execute("UPDATE lectures SET deadline=NULL WHERE id=?", (lecture_id,))
-        start = max(date.today(), date.fromisoformat(old) + timedelta(days=1))
+        start = max(local_today(), date.fromisoformat(old) + timedelta(days=1))
         db.execute("SAVEPOINT missed_replan")
         try:
             replan(start, f"Bài {lecture['lecture_number']} trễ hạn: {reason}")
@@ -613,7 +614,7 @@ def download_ai_kit():
             archive.writestr(f"ai-kit-khoa-hoc/{name}", content)
     output.seek(0)
     return send_file(output, mimetype="application/zip", as_attachment=True,
-                     download_name=f"ai-kit-khoa-hoc-{date.today().isoformat()}.zip")
+                     download_name=f"ai-kit-khoa-hoc-{local_today().isoformat()}.zip")
 
 
 @bp.route("/plans", methods=["GET", "POST"])
@@ -856,7 +857,7 @@ def add_task(lecture_id):
         update_lecture_from_tasks(lecture_id)
         last_event_id = db.execute(
             "SELECT COALESCE(MAX(id), 0) FROM schedule_events").fetchone()[0]
-        replan(date.today(), f"Thêm phần việc {title}", preserve_overdue=True)
+        replan(local_today(), f"Thêm phần việc {title}", preserve_overdue=True)
         planned_deadline = db.execute(
             "SELECT deadline FROM lecture_tasks WHERE id=?", (task_id,)).fetchone()[0]
         db.execute("DELETE FROM schedule_events WHERE id>? AND task_id=?",
@@ -883,8 +884,8 @@ def complete_task(task_id, completed_at_override=None):
     try:
         already_done = task["status"] == "Hoàn thành"
         completed = parse_date(completed_at_override or
-                               request.form.get("completed_at", date.today().isoformat()))
-        if completed > date.today().isoformat():
+                               request.form.get("completed_at", local_today().isoformat()))
+        if completed > local_today().isoformat():
             raise ValueError("Không thể đánh dấu hoàn thành cho ngày trong tương lai")
         if already_done and completed == task["completed_at"]:
             raise ValueError("Ngày hoàn thành chưa thay đổi")
@@ -920,7 +921,7 @@ def complete_task(task_id, completed_at_override=None):
         replanned = False
         db.execute("SAVEPOINT task_replan")
         try:
-            replan(date.today(), f"Cập nhật ngày hoàn thành phần việc {task['title']}",
+            replan(local_today(), f"Cập nhật ngày hoàn thành phần việc {task['title']}",
                    preserve_overdue=True)
             replanned = True
         except ValueError:
@@ -946,7 +947,7 @@ def miss_task(task_id):
     try:
         if task["status"] == "Hoàn thành" or not task["deadline"]:
             raise ValueError("Phần việc không có hạn đang chờ xử lý")
-        if task["deadline"] > date.today().isoformat():
+        if task["deadline"] > local_today().isoformat():
             raise ValueError("Chỉ ghi trễ hạn khi đến ngày hoàn thành dự kiến")
         reason = request.form.get("reason", "").strip()
         if not reason:
@@ -956,7 +957,7 @@ def miss_task(task_id):
             (lecture_id, task_id, old_deadline, reason) VALUES (?, ?, ?, ?)""",
             (lecture["id"], task_id, old, reason))
         db.execute("UPDATE lecture_tasks SET deadline=NULL WHERE id=?", (task_id,))
-        start = max(date.today(), date.fromisoformat(old) + timedelta(days=1))
+        start = max(local_today(), date.fromisoformat(old) + timedelta(days=1))
         db.execute("SAVEPOINT missed_task_replan")
         try:
             replan(start, f"Phần việc trễ hạn: {reason}")
@@ -1058,7 +1059,7 @@ def course_detail(course_id):
                  progress, request.form.get("notes", "").strip(), estimated, course_id))
             if status == "Hoàn thành":
                 db.execute("DELETE FROM schedule_allocations WHERE course_id=? AND study_date>=?",
-                           (course_id, date.today().isoformat()))
+                           (course_id, local_today().isoformat()))
             refresh_schedule(change_reason or f"Cập nhật khóa học {name}")
             db.commit()
             flash("Đã cập nhật khóa học.", "success")
@@ -1080,7 +1081,7 @@ def course_detail(course_id):
     return render_template("course_detail.html", course=course_summary, lectures=lectures,
                            display_progress=course_summary["display_progress"], statuses=STATUSES,
                            parts_by_lecture=parts_by_lecture, task_types=TASK_TYPES,
-                           today=date.today().isoformat(),
+                           today=local_today().isoformat(),
                            completion_events=db.execute("""SELECT e.*, l.lecture_number,
                                t.title AS task_title FROM completion_events e
                                JOIN lectures l ON l.id=e.lecture_id
@@ -1132,7 +1133,7 @@ def update_course_start_date(course_id):
                 WHERE status!='Hoàn thành' AND lecture_id IN
                 (SELECT id FROM lectures WHERE course_id=?)""", (course_id,))
         planning_start = min(
-            [date.today()] + [date.fromisoformat(value)
+            [local_today()] + [date.fromisoformat(value)
                               for value in (course["start_date"], start) if value])
         replan(planning_start, reason,
                preserve_overdue=True, recalculate_overdue_course_id=course_id)
@@ -1192,7 +1193,7 @@ def delete_course(course_id):
                 if not pending_missed():
                     db.execute("SAVEPOINT delete_replan")
                     try:
-                        replan(date.today(), f"Xóa khóa học {course_name}")
+                        replan(local_today(), f"Xóa khóa học {course_name}")
                     except ValueError:
                         db.execute("ROLLBACK TO delete_replan")
                     finally:
@@ -1244,8 +1245,8 @@ def add_lecture(course_id):
                  f"Bài mới kế thừa hạn của Bài {number} trước khi chèn"))
         get_db().execute("""UPDATE courses SET status='Đang học'
             WHERE id=? AND status='Hoàn thành'""", (course_id,))
-        planning_start = min(date.today(), date.fromisoformat(course["start_date"])) \
-            if insert_before and course["start_date"] else date.today()
+        planning_start = min(local_today(), date.fromisoformat(course["start_date"])) \
+            if insert_before and course["start_date"] else local_today()
         replan(planning_start,
                f"{'Chèn' if insert_before else 'Thêm'} bài {number}",
                preserve_overdue=True,
@@ -1296,7 +1297,7 @@ def delete_lecture(lecture_id):
             VALUES (?, NULL, ?, NULL, ?, 'xóa bài học')""",
             (course["id"], lecture["deadline"],
              f"Xóa {label} cùng {task_count} phần việc; đã dồn số thứ tự các bài phía sau"))
-        replan(date.today(), f"Xóa {label}", preserve_overdue=True)
+        replan(local_today(), f"Xóa {label}", preserve_overdue=True)
         db.commit()
     except (OSError, sqlite3.Error, ValueError) as exc:
         db.rollback()
@@ -1369,7 +1370,7 @@ def journal():
         JOIN courses c ON c.id=j.course_id WHERE j.user_id=?
         ORDER BY j.date DESC, j.id DESC""", (current_user_id(),)).fetchall()
     return render_template("journal.html", courses=courses_with_progress(), entries=entries,
-                           today=date.today().isoformat(), difficulties=DIFFICULTIES)
+                           today=local_today().isoformat(), difficulties=DIFFICULTIES)
 
 
 @bp.route("/journal/<int:entry_id>", methods=["GET", "POST"])
@@ -1403,7 +1404,7 @@ def journal_delete(entry_id):
 def reviews():
     db = get_db()
     user_id = current_user_id()
-    today = date.today()
+    today = local_today()
     period = request.args.get("period", "week")
     if period not in ("week", "month"):
         abort(400)
@@ -1470,4 +1471,4 @@ def export():
             archive.writestr(name, content)
     output.seek(0)
     return send_file(output, mimetype="application/zip", as_attachment=True,
-                     download_name=f"lich-ke-hoach-{date.today().isoformat()}.zip")
+                     download_name=f"lich-ke-hoach-{local_today().isoformat()}.zip")

@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='schedule.css') }}">
   <link rel="stylesheet" href="{{ url_for('static', filename='plans.css') }}">
+  <script src="{{ url_for('static', filename='timezone.js') }}"></script>
 </head>
 <body>
   <header class="site-header">
@@ -32,7 +33,7 @@
     {% endwith %}
     {% block content %}{% endblock %}
   </main>
-  <footer class="shell footer">Dữ liệu kế hoạch thuộc về từng tài khoản · Xuất Markdown và JSON</footer>
+  <footer class="shell footer">Múi giờ: {{ user_timezone }} · Dữ liệu kế hoạch thuộc về từng tài khoản · Xuất Markdown và JSON</footer>
   {% block scripts %}{% endblock %}
 </body>
 </html>

@@ -1,9 +1,10 @@
 import json
 from collections import defaultdict
-from datetime import date, timedelta
+from datetime import timedelta
 
 from .auth import current_user_id
 from .db import get_db
+from .timezone import local_today
 
 
 def capacity_on(day, profiles=None, overrides=None):
@@ -50,7 +51,7 @@ def course_plan_owners():
 
 
 def pending_missed(today=None):
-    today = today or date.today()
+    today = today or local_today()
     db = get_db()
     lecture_rows = [dict(row, task_id=None, part_title=None) for row in db.execute(
         """SELECT l.*, c.display_name AS course_name FROM lectures l JOIN courses c ON c.id=l.course_id
@@ -79,7 +80,7 @@ def ensure_plan(today=None):
     db = get_db()
     if not db.execute("""SELECT 1 FROM schedule_allocations a JOIN courses c ON c.id=a.course_id
         WHERE c.owner_user_id=? LIMIT 1""", (current_user_id(),)).fetchone():
-        replan(today or date.today(), "Lập lịch học ban đầu")
+        replan(today or local_today(), "Lập lịch học ban đầu")
         db.commit()
 
 
@@ -87,8 +88,8 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
            recalculate_overdue_course_id=None):
     """Allocate remaining lecture parts, then derive each lecture's final deadline."""
     db = get_db()
-    start = start or date.today()
-    overdue = pending_missed(date.today())
+    start = start or local_today()
+    overdue = pending_missed(local_today())
     if overdue and not preserve_overdue:
         raise ValueError("Hãy ghi lý do trễ hạn cho từng phần việc quá hạn trước khi lập lại lịch.")
     overdue_task_ids = {row["task_id"] for row in overdue if row["task_id"] is not None}

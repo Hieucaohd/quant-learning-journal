@@ -7,6 +7,7 @@ from .auth import current_user_id
 from .db import get_db
 from .plan_import import TASK_TYPES
 from .scheduler import active_course_ids
+from .timezone import local_today
 
 
 def course_progress(course):
@@ -132,7 +133,7 @@ def report_data():
 
 def streak(journals, today=None):
     days = {date.fromisoformat(row["date"]) for row in journals}
-    day = today or date.today()
+    day = today or local_today()
     if day not in days:
         day -= timedelta(days=1)
     count = 0
@@ -171,7 +172,7 @@ def build_export(export_dir):
             (row["understanding"] is not None and row["understanding"] <= 5)]
     next_plan = next((row["next_plan"] for row in reversed(journals) if row["next_plan"]), "—")
 
-    summary = ["# Tiến độ kế hoạch", "", f"Ngày xuất: {date.today().isoformat()}", "",
+    summary = ["# Tiến độ kế hoạch", "", f"Ngày xuất: {local_today().isoformat()}", "",
                f"Khóa học hiện tại: {current['name'] if current else '—'}", "",
                hours_line, "", "## Khóa học", ""]
     for course in courses:

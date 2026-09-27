@@ -35,6 +35,8 @@ def create_app(test_config=None):
         TURSO_DATABASE_URL=turso_url,
         TURSO_AUTH_TOKEN=turso_token,
         APP_USERNAME=os.environ.get("APP_USERNAME", "quant"),
+        # Used until the browser reports its own zone (see app/timezone.py).
+        DEFAULT_TIMEZONE=os.environ.get("DEFAULT_TIMEZONE", "Asia/Ho_Chi_Minh"),
         APP_PASSWORD=os.environ.get("APP_PASSWORD", ""),
         SECRET_KEY=os.environ.get("JOURNAL_SECRET_KEY", "local-only-journal-key"),
         SESSION_COOKIE_HTTPONLY=True,
@@ -66,8 +68,9 @@ def create_app(test_config=None):
     if on_vercel and not app.config["APP_PASSWORD"]:
         raise RuntimeError("Thiếu APP_PASSWORD trên Vercel; ứng dụng không được triển khai công khai.")
 
-    from . import db
+    from . import db, timezone
 
+    timezone.init_app(app)
     db.init_app(app)
     from .auth import bp as auth_bp
     from .routes import bp

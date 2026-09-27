@@ -1,10 +1,10 @@
 """Files a user downloads and uploads to ChatGPT so it can write a course plan JSON."""
 import json
-from datetime import date
 from pathlib import Path
 
 from .db import get_db
 from .plan_import import TASK_TYPES
+from .timezone import local_today
 
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -49,7 +49,7 @@ def current_courses(user_id):
     own_names = {course["name"] for course in courses}
     catalog = [row["name"] for row in db.execute("SELECT name FROM course_catalogs ORDER BY name")
                if row["name"] not in own_names]
-    return {"generated_on": date.today().isoformat(), "task_types": TASK_TYPES,
+    return {"generated_on": local_today().isoformat(), "task_types": TASK_TYPES,
             "my_courses": courses, "other_shared_courses": catalog}
 
 
