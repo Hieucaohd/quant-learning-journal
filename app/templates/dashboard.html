@@ -3,9 +3,9 @@
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">TỔNG QUAN KẾ HOẠCH</p><h1>Tổng quan</h1><p class="muted">Theo dõi tiến độ các kế hoạch và việc cần làm tiếp theo.</p></div><a class="button" href="{{ url_for('main.journal') }}">+ Ghi buổi học</a></div>
 <div class="stats">
-  <section class="card stat"><span class="label">Tổng số giờ học</span><strong>{{ '%.1f'|format(total_hours) }}</strong><span class="muted">trên mục tiêu tham chiếu 700 giờ</span></section>
-  <section class="card stat"><span class="label">Ngày học liên tiếp</span><strong>{{ streak }} <small>ngày</small></strong><span class="muted">Tính từ những ngày có nhật ký</span></section>
-  <section class="card stat"><span class="label">Tuần này</span><strong>{{ '%.1f'|format(week.hours) }} <small>giờ</small></strong><span class="muted">trên kế hoạch 36 giờ mỗi tuần</span></section>
+  <section class="card stat"><span class="label">Đã hoàn thành</span><strong>{{ '%g'|format(done_hours) }} <small>/ {{ '%g'|format(planned_hours) }} giờ</small></strong><span class="muted">{{ done_percent }}% khối lượng của các khóa học{% if journal_hours %} · {{ '%g'|format(journal_hours) }} giờ ghi trong nhật ký{% endif %}</span></section>
+  <section class="card stat"><span class="label">Ngày liên tiếp có tiến độ</span><strong>{{ streak }} <small>ngày</small></strong><span class="muted">Ngày có việc hoàn thành hoặc có nhật ký</span></section>
+  <section class="card stat"><span class="label">Tuần này</span><strong>{{ '%g'|format(week.hours) }} <small>giờ</small></strong><span class="muted">{{ week['items']|length }} việc hoàn thành · quỹ thời gian tuần này {{ '%g'|format(week_capacity) }} giờ</span></section>
 </div>
 <div class="two-col">
   <section class="card">

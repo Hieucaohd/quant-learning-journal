@@ -14,7 +14,8 @@ from flask import (Blueprint, abort, current_app, flash, g, redirect, render_tem
 from .ai_kit import ai_kit_files, ai_prompt
 from .auth import current_user_id
 from .db import enroll_catalog_course, get_db, sync_lecture_hours
-from .reports import build_export, courses_with_progress, period_summary, report_data, streak
+from .reports import (build_export, completed_work, courses_with_progress, period_summary,
+                      report_data, streak, work_summary)
 from .scheduler import (active_course_ids, capacity_on, course_deadlines, day_plan, ensure_plan,
                         pending_missed, replan)
 from .plan_import import TASK_TYPES, apply_plan, inspect_plan, parse_plan
@@ -259,15 +260,23 @@ def dashboard():
         current = next((c for c in courses if c["display_progress"] < 100), None)
     today = date.today()
     week_start = today - timedelta(days=today.weekday())
-    week = period_summary(journals, week_start.isoformat(), (week_start + timedelta(days=6)).isoformat())
+    week_days = [week_start + timedelta(days=offset) for offset in range(7)]
+    work = completed_work()
+    week = work_summary(work, week_days[0].isoformat(), week_days[-1].isoformat())
+    planned_hours = round(sum(c["total_hours"] for c in data["courses"]), 2)
+    done_hours = round(sum(c["total_hours"] - c["remaining_hours_total"]
+                           for c in data["courses"]), 2)
     projections = course_deadlines()
     missing = [c for c in courses if c["status"] != "Hoàn thành" and c["id"] not in projections]
     remaining_dates = [projections[c["id"]] for c in courses
                        if c["status"] != "Hoàn thành" and c["id"] in projections]
     return render_template("dashboard.html", current=current, courses=courses,
                            recent=list(reversed(journals[-7:])),
-                           total_hours=sum(j["hours"] for j in journals),
-                           streak=streak(journals), week=week,
+                           planned_hours=planned_hours, done_hours=done_hours,
+                           done_percent=round(100 * done_hours / planned_hours) if planned_hours else 0,
+                           journal_hours=round(sum(j["hours"] for j in journals), 2),
+                           streak=streak(journals + work), week=week,
+                           week_capacity=round(sum(capacity_on(day) for day in week_days), 2),
                            today_plan=day_plan(today),
                            projected_finish=max(remaining_dates) if remaining_dates and not missing else None)
 
@@ -1422,6 +1431,7 @@ def reviews():
         (user_id, period, start.isoformat())).fetchone()
     data = report_data()
     summary = period_summary(data["journals"], start.isoformat(), end.isoformat())
+    work = work_summary(completed_work(), start.isoformat(), end.isoformat())
     entries = [row for row in data["journals"] if start.isoformat() <= row["date"] <= end.isoformat()]
     monthly = None
     if period == "month":
@@ -1432,15 +1442,18 @@ def reviews():
                                   if row["problems"] or (row["understanding"] is not None
                                                           and row["understanding"] <= 5)))
         weeks = (end - start).days / 7 + 1 / 7
-        monthly = {"completed": [c["name"] for c in data["courses"] if c["status"] == "Hoàn thành"],
+        # A finished course stores its finishing day in target_date.
+        monthly = {"completed": [c["name"] for c in data["courses"]
+                                 if c["status"] == "Hoàn thành" and c["target_date"]
+                                 and start.isoformat() <= c["target_date"] <= end.isoformat()],
                    "mastered": mastered, "weak": weak,
-                   "velocity": round(summary["hours"] / weeks, 1),
+                   "velocity": round(work["hours"] / weeks, 1),
                    "recommendation": (f"Luyện thêm chủ đề {weak[0]}." if weak else
                                       "Tiếp tục ghi nhật ký và đặt mục tiêu cụ thể cho buổi tiếp theo.")}
     previous = start - timedelta(days=1)
     following = end + timedelta(days=1)
     return render_template("reviews.html", period=period, selected=selected,
-                           start=start, end=end, summary=summary, review=review,
+                           start=start, end=end, summary=summary, work=work, review=review,
                            previous=previous, following=following, monthly=monthly)
 
 

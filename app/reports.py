@@ -37,8 +37,48 @@ def courses_with_progress(user_id=None):
         course["name"] = course.get("display_name") or course["name"]
         course["target_date"] = course.pop("calculated_target_date")
         course["display_progress"] = course_progress(course)
+        # The stored status is only set by hand (or to "Hoàn thành" by the
+        # scheduler), so a course with finished work would still read
+        # "Chưa bắt đầu". Show it as in progress instead.
+        if course["status"] == "Chưa bắt đầu" and (
+                course["completed_count"]
+                or course["remaining_hours_total"] < course["total_hours"]):
+            course["status"] = "Đang học"
         courses.append(course)
     return courses
+
+
+def completed_work(user_id=None):
+    """Finished work items with their completion date and estimated hours.
+
+    A lecture split into parts counts through its parts; a lecture without
+    parts counts as one item. Hours are the planned estimate of the item.
+    """
+    user_id = current_user_id() if user_id is None else user_id
+    rows = get_db().execute("""
+        SELECT t.completed_at AS date, c.id AS course_id, c.display_name AS course_name,
+               l.lecture_number, t.title, t.estimated_hours AS hours
+        FROM lecture_tasks t JOIN lectures l ON l.id=t.lecture_id
+        JOIN courses c ON c.id=l.course_id
+        WHERE c.owner_user_id=? AND t.status='Hoàn thành' AND t.completed_at IS NOT NULL
+        UNION ALL
+        SELECT l.completed_at, c.id, c.display_name, l.lecture_number, l.title, l.estimated_hours
+        FROM lectures l JOIN courses c ON c.id=l.course_id
+        WHERE c.owner_user_id=? AND l.status='Hoàn thành' AND l.completed_at IS NOT NULL
+          AND NOT EXISTS (SELECT 1 FROM lecture_tasks t WHERE t.lecture_id=l.id)
+        ORDER BY 1, 2, 4""", (user_id, user_id)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def work_summary(work, start, end):
+    """Completed work between two ISO dates, inclusive."""
+    items = [row for row in work if start <= row["date"] <= end]
+    by_course = defaultdict(float)
+    for row in items:
+        by_course[row["course_name"]] += row["hours"]
+    return {"hours": round(sum(by_course.values()), 2),
+            "by_course": {name: round(hours, 2) for name, hours in by_course.items()},
+            "items": items}
 
 
 def report_data():
@@ -118,6 +158,10 @@ def build_export(export_dir):
     data = report_data()
     courses, lectures, journals = data["courses"], data["lectures"], data["journals"]
     total_hours = round(sum(row["hours"] for row in journals), 2)
+    planned_hours = round(sum(c["total_hours"] for c in courses), 2)
+    done_hours = round(sum(c["total_hours"] - c["remaining_hours_total"] for c in courses), 2)
+    hours_line = (f"Giờ đã hoàn thành: {done_hours:g}/{planned_hours:g}; "
+                  f"giờ ghi trong nhật ký: {total_hours:g}")
     active_ids = set(active_course_ids())
     active_courses = [course for course in courses if course["id"] in active_ids]
     current = next((c for c in active_courses if c["status"] == "Đang học"), None)
@@ -129,7 +173,7 @@ def build_export(export_dir):
 
     summary = ["# Tiến độ kế hoạch", "", f"Ngày xuất: {date.today().isoformat()}", "",
                f"Khóa học hiện tại: {current['name'] if current else '—'}", "",
-               f"Tổng số giờ học: {total_hours:g}", "", "## Khóa học", ""]
+               hours_line, "", "## Khóa học", ""]
     for course in courses:
         summary.append(f"- {course['name']}: {course['display_progress']}% · "
                        f"còn {course['remaining_hours_total']:g}/{course['total_hours']:g} giờ "
@@ -155,9 +199,9 @@ def build_export(export_dir):
                        ("Đã hoàn thành" if course["status"] == "Hoàn thành" else
                         projected.get(course["id"], "Chưa đủ dữ liệu")))
 
-    streak_days = streak(journals)
-    progress = ["# Báo cáo tiến độ", "", f"Tổng số giờ học: {total_hours:g}",
-                f"Số ngày học liên tiếp: {streak_days}", "", "## Tiến độ bài học", ""]
+    streak_days = streak(journals + completed_work())
+    progress = ["# Báo cáo tiến độ", "", hours_line,
+                f"Số ngày liên tiếp có tiến độ: {streak_days}", "", "## Tiến độ bài học", ""]
     for course in courses:
         group = [row for row in lectures if row["course_id"] == course["id"]]
         completed = [str(row["lecture_number"]) for row in group if row["status"] == "Hoàn thành"]
