@@ -72,6 +72,7 @@ Trong **Project Settings → Environment Variables**, thêm:
 | `APP_USERNAME` | `quant` hoặc tên bạn muốn |
 | `APP_PASSWORD` | mật khẩu ban đầu của quản trị viên |
 | `JOURNAL_SECRET_KEY` | chuỗi ngẫu nhiên |
+| `ALLOW_REGISTRATION` | (tùy chọn) đặt `0` để tắt trang tự đăng ký tài khoản; mặc định bật |
 
 Tạo secret bằng Python:
 

@@ -38,6 +38,8 @@ def create_app(test_config=None):
         # Used until the browser reports its own zone (see app/timezone.py).
         DEFAULT_TIMEZONE=os.environ.get("DEFAULT_TIMEZONE", "Asia/Ho_Chi_Minh"),
         APP_PASSWORD=os.environ.get("APP_PASSWORD", ""),
+        # Public sign-up for new "user" accounts; set ALLOW_REGISTRATION=0 to turn it off.
+        ALLOW_REGISTRATION=os.environ.get("ALLOW_REGISTRATION", "1") != "0",
         SECRET_KEY=os.environ.get("JOURNAL_SECRET_KEY", "local-only-journal-key"),
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",

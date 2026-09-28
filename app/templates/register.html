@@ -1,0 +1,18 @@
+{% extends 'base.html' %}
+{% block title %}Đăng ký · Lịch Kế Hoạch{% endblock %}
+{% block content %}
+<section class="card narrow auth-card">
+  <p class="eyebrow">LỊCH KẾ HOẠCH</p>
+  <h1>Tạo tài khoản</h1>
+  <p class="muted">Tài khoản mới có kế hoạch, lịch và tiến độ riêng. Khóa học trong danh mục chung được dùng chung cho mọi người.</p>
+  <form method="post" class="form-grid">
+    <label>Tên hiển thị <input name="display_name" value="{{ form.display_name }}" maxlength="80" autocomplete="name" placeholder="Ví dụ: Nguyễn Văn A"></label>
+    <label>Tên đăng nhập <input name="username" value="{{ form.username }}" required autofocus autocomplete="username" minlength="3" maxlength="40" pattern="[A-Za-z0-9._\-]{3,40}" title="3–40 ký tự: chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang"></label>
+    <p class="hint">3–40 ký tự: chữ không dấu, số, dấu chấm, gạch dưới hoặc gạch ngang.</p>
+    <label>Mật khẩu <input name="password" type="password" minlength="8" required autocomplete="new-password"></label>
+    <label>Nhập lại mật khẩu <input name="confirm_password" type="password" minlength="8" required autocomplete="new-password"></label>
+    <button class="button button-dark" type="submit">Tạo tài khoản</button>
+  </form>
+  <p class="muted small">Đã có tài khoản? <a href="{{ url_for('auth.login') }}">Đăng nhập</a></p>
+</section>
+{% endblock %}

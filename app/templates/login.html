@@ -10,5 +10,6 @@
     <label>Mật khẩu <input name="password" type="password" autocomplete="current-password" required></label>
     <button class="button button-dark" type="submit">Đăng nhập</button>
   </form>
+  {% if config.ALLOW_REGISTRATION %}<p class="muted small">Chưa có tài khoản? <a href="{{ url_for('auth.register') }}">Đăng ký</a></p>{% endif %}
 </section>
 {% endblock %}

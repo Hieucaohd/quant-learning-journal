@@ -1,4 +1,5 @@
 import functools
+import re
 import sqlite3
 
 from flask import (Blueprint, abort, current_app, flash, g, redirect, render_template,
@@ -50,7 +51,7 @@ def load_logged_in_user():
 @bp.before_app_request
 def require_login():
     if g.get("user") is None and request.endpoint not in {
-            "auth.login", "auth.setup", "static"}:
+            "auth.login", "auth.register", "auth.setup", "static"}:
         return redirect(url_for("auth.login", next=request.full_path.rstrip("?")))
 
 
@@ -93,6 +94,50 @@ def login():
             return redirect(target if target.startswith("/") and not target.startswith("//")
                             else url_for("main.dashboard"))
     return render_template("login.html")
+
+
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9._-]{3,40}$")
+
+
+@bp.route("/register", methods=["GET", "POST"])
+def register():
+    """Public sign-up. New accounts are always plain users, never admins."""
+    if not current_app.config.get("ALLOW_REGISTRATION", True):
+        abort(404)
+    if g.get("user") is not None and not current_app.config.get("AUTH_DISABLED"):
+        return redirect(url_for("main.dashboard"))
+    db = get_db()
+    first = db.execute("SELECT * FROM users ORDER BY id LIMIT 1").fetchone()
+    if first and not first["password_hash"] and not current_app.config.get("APP_PASSWORD"):
+        return redirect(url_for("auth.setup"))
+    form = {"username": "", "display_name": ""}
+    if request.method == "POST":
+        form = {"username": request.form.get("username", "").strip(),
+                "display_name": request.form.get("display_name", "").strip()}
+        password = request.form.get("password", "")
+        if not USERNAME_PATTERN.match(form["username"]):
+            flash("Tên đăng nhập gồm 3–40 ký tự: chữ không dấu, số, dấu chấm, gạch dưới "
+                  "hoặc gạch ngang.", "error")
+        elif len(form["display_name"]) > 80:
+            flash("Tên hiển thị tối đa 80 ký tự.", "error")
+        elif len(password) < 8:
+            flash("Mật khẩu phải có ít nhất 8 ký tự.", "error")
+        elif password != request.form.get("confirm_password", ""):
+            flash("Mật khẩu nhập lại không khớp.", "error")
+        else:
+            try:
+                user_id = create_user(form["username"], password, "user", form["display_name"])
+                db.commit()
+            except sqlite3.IntegrityError:
+                db.rollback()
+                flash("Tên đăng nhập này đã có người dùng. Hãy chọn tên khác.", "error")
+            else:
+                session.clear()
+                session["user_id"] = user_id
+                flash("Đã tạo tài khoản. Hãy thêm khóa học từ danh mục chung để bắt đầu "
+                      "lập kế hoạch.", "success")
+                return redirect(url_for("main.courses"))
+    return render_template("register.html", form=form)
 
 
 @bp.post("/logout")
