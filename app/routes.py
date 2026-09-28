@@ -876,6 +876,46 @@ def add_task(lecture_id):
     return redirect(url_for("main.course_detail", course_id=lecture["course_id"]))
 
 
+@bp.post("/tasks/<int:task_id>/delete")
+def delete_task(task_id):
+    db = get_db()
+    task = required_row("lecture_tasks", task_id)
+    lecture = required_row("lectures", task["lecture_id"])
+    course_id = lecture["course_id"]
+    if request.form.get("confirmation") != "delete":
+        flash("Phần việc chưa bị xóa vì thiếu xác nhận.", "error")
+        return redirect(url_for("main.course_detail", course_id=course_id))
+    label = f"{task['title']} (Bài {lecture['lecture_number']})"
+    try:
+        backup_path = backup_database(f"task-{task_id}")
+        # Rows that point at the part go first, explicitly: a remote libSQL
+        # connection may not enforce ON DELETE CASCADE.
+        for table in ("schedule_allocations", "missed_deadlines", "completion_events",
+                      "schedule_events"):
+            db.execute(f"DELETE FROM {table} WHERE task_id=?", (task_id,))
+        db.execute("DELETE FROM lecture_tasks WHERE id=?", (task_id,))
+        if db.execute("SELECT 1 FROM lecture_tasks WHERE lecture_id=? LIMIT 1",
+                      (lecture["id"],)).fetchone():
+            update_lecture_from_tasks(lecture["id"])
+        else:
+            # Last part gone: keep the lecture's own status and completion date
+            # rather than resetting a finished lecture; only its hours change.
+            sync_lecture_hours(db, lecture["id"])
+        db.execute("""INSERT INTO schedule_events
+            (course_id, lecture_id, old_deadline, new_deadline, reason, kind)
+            VALUES (?, ?, ?, NULL, ?, 'xóa phần việc')""",
+            (course_id, lecture["id"], task["deadline"], f"Xóa phần việc {label}"))
+        replan(local_today(), f"Xóa phần việc {label}", preserve_overdue=True)
+        db.commit()
+    except (OSError, sqlite3.Error, ValueError) as exc:
+        db.rollback()
+        flash(f"Không thể xóa phần việc: {exc}", "error")
+    else:
+        flash(f"Đã xóa phần việc {label}, cập nhật giờ của bài và tính lại lịch. "
+              f"Bản sao lưu: {backup_path.name}", "success")
+    return redirect(url_for("main.course_detail", course_id=course_id))
+
+
 @bp.post("/tasks/<int:task_id>/complete")
 def complete_task(task_id, completed_at_override=None):
     db = get_db()
