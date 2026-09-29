@@ -78,6 +78,19 @@ File JSON xuất ra gồm danh mục khóa học, các kế hoạch và thành v
 
 Mở **Nhập kế hoạch học** để tải file `.json` hoặc dán JSON. Ứng dụng kiểm tra và hiển thị bản xem trước; chỉ khi bạn bấm **Xác nhận nhập và lập lại lịch** dữ liệu mới được ghi vào SQLite. Khóa mới được AI tạo sẽ nằm trong danh mục; thêm khóa đó vào kế hoạch đang hoạt động để hiện trên lịch.
 
+### Xuất và điều chỉnh một khóa học đang thực hiện
+
+Trong trang chi tiết kế hoạch, bấm **Xuất JSON để AI điều chỉnh** ở một khóa học. Snapshot phiên bản 2 chứa thông tin kế hoạch và khóa học, toàn bộ bài học/phần việc, số giờ, trạng thái, ngày hoàn thành, hạn dự kiến, lịch đã xếp, lịch sử đổi hạn/trễ hạn/hoàn thành và các nhật ký liên quan. File cũng có `ai_instructions` để AI biết trường nào được sửa và quy tắc giữ tiến độ.
+
+Sau khi AI trả lại JSON, mở **Nhập kế hoạch học**, chọn **Ghi đè khóa học trong kế hoạch**, chọn kế hoạch nguồn và kiểm tra file. Ở bước xem trước, tích những kế hoạch cần nhận bản điều chỉnh:
+
+- Nếu chọn tất cả kế hoạch đang chứa khóa học, hệ thống cập nhật khóa học dùng chung tại chỗ.
+- Nếu chỉ chọn một số kế hoạch, hệ thống tạo một bản tiến độ riêng cho các kế hoạch đã chọn; các kế hoạch còn lại tiếp tục dùng dữ liệu cũ.
+- Kế hoạch nguồn được chọn sẵn nhưng có thể bỏ chọn. Phải chọn ít nhất một kế hoạch và chỉ kế hoạch đang hoạt động mới có thể nhận bản điều chỉnh.
+- Hệ thống sao lưu trước khi ghi đè, giữ nguyên nhật ký, khôi phục các dấu hoàn thành từ `status`, `completed_at` và `remaining_hours`, rồi tự động lập lại lịch và hạn hoàn thành.
+
+Định dạng máy đọc nằm tại `app/static/course_snapshot_format.schema.json`. `source_plan_id` và `source_course_id` phải được giữ nguyên để ứng dụng xác định đúng dữ liệu nguồn. Bài hoặc phần việc có `status` là `Hoàn thành` phải có `completed_at`; phần việc đã hoàn thành phải có `remaining_hours` bằng `0`.
+
 Ba file nằm trong `app/static/` và có thể tải trực tiếp ở màn hình nhập:
 
 - `AI_PLAN_PROMPT.md` — yêu cầu mẫu để gửi AI cùng đề cương và danh sách bài chưa hoàn thành.

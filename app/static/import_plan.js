@@ -25,3 +25,16 @@
     status.textContent = "Đã sao chép prompt.";
   });
 })();
+
+(() => {
+  const mode = document.querySelector("#import-type");
+  const plan = document.querySelector("#target-plan-field");
+  if (!mode || !plan) return;
+  const update = () => {
+    plan.hidden = mode.value !== "overwrite_course";
+    const select = plan.querySelector("select");
+    if (select) select.required = mode.value === "overwrite_course";
+  };
+  mode.addEventListener("change", update);
+  update();
+})();

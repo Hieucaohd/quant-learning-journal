@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://quant-learning-journal.local/course_snapshot_format.schema.json",
+  "title": "Snapshot khóa học trong kế hoạch",
+  "type": "object",
+  "required": ["schema_version", "export_type", "plan", "course"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {"const": 2},
+    "export_type": {"const": "course_plan_snapshot"},
+    "exported_at": {"type": "string"},
+    "ai_instructions": {"type": "object"},
+    "scheduling_context": {"type": "object"},
+    "history": {"type": "object"},
+    "plan": {
+      "type": "object",
+      "required": ["source_plan_id", "name"],
+      "additionalProperties": false,
+      "properties": {
+        "source_plan_id": {"type": "integer", "minimum": 1},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "description": {"type": "string"},
+        "status": {"type": "string"},
+        "priority": {"type": "integer"},
+        "course_position": {"type": "integer"}
+      }
+    },
+    "course": {
+      "type": "object",
+      "required": ["source_course_id", "name", "lectures"],
+      "additionalProperties": false,
+      "properties": {
+        "source_course_id": {"type": "integer", "minimum": 1},
+        "name": {"type": "string", "minLength": 1, "maxLength": 200},
+        "description": {"type": "string"},
+        "start_date": {"$ref": "#/$defs/date"},
+        "target_date": {"$ref": "#/$defs/date"},
+        "status": {"$ref": "#/$defs/status"},
+        "progress": {"type": "integer", "minimum": 0, "maximum": 100},
+        "notes": {"type": "string"},
+        "estimated_hours": {"type": "number", "minimum": 0, "maximum": 10000},
+        "lectures": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {"$ref": "#/$defs/lecture"}
+        }
+      }
+    }
+  },
+  "$defs": {
+    "date": {
+      "oneOf": [
+        {"type": "string", "format": "date"},
+        {"type": "null"}
+      ]
+    },
+    "status": {
+      "enum": ["Chưa bắt đầu", "Đang học", "Hoàn thành", "Cần ôn tập"]
+    },
+    "lecture": {
+      "type": "object",
+      "required": ["number", "title", "tasks"],
+      "additionalProperties": false,
+      "properties": {
+        "source_lecture_id": {"type": "integer", "minimum": 1},
+        "number": {"type": "integer", "minimum": 1, "maximum": 10000},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "content": {"type": "string"},
+        "status": {"$ref": "#/$defs/status"},
+        "estimated_hours": {"type": "number", "minimum": 0, "maximum": 10000},
+        "remaining_hours": {"type": "number", "minimum": 0, "maximum": 10000},
+        "understanding_score": {"oneOf": [{"type": "integer", "minimum": 1, "maximum": 10}, {"type": "null"}]},
+        "notes": {"type": "string"},
+        "deadline": {"$ref": "#/$defs/date"},
+        "manual_deadline": {"$ref": "#/$defs/date"},
+        "completed_at": {"$ref": "#/$defs/date"},
+        "completed_on_time": {"oneOf": [{"type": "boolean"}, {"type": "null"}]},
+        "tasks": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/task"}}
+      }
+    },
+    "task": {
+      "type": "object",
+      "required": ["position", "type", "title", "estimated_hours"],
+      "additionalProperties": false,
+      "properties": {
+        "source_task_id": {"type": "integer", "minimum": 1},
+        "position": {"type": "integer", "minimum": 1, "maximum": 100},
+        "type": {"enum": ["video", "exercises", "review", "reading", "project", "other"]},
+        "title": {"type": "string", "minLength": 1, "maxLength": 200},
+        "content": {"type": "string"},
+        "estimated_hours": {"type": "number", "exclusiveMinimum": 0, "maximum": 100},
+        "remaining_hours": {"type": "number", "minimum": 0, "maximum": 100},
+        "status": {"$ref": "#/$defs/status"},
+        "deadline": {"$ref": "#/$defs/date"},
+        "manual_deadline": {"$ref": "#/$defs/date"},
+        "completed_at": {"$ref": "#/$defs/date"},
+        "completed_on_time": {"oneOf": [{"type": "boolean"}, {"type": "null"}]}
+      }
+    }
+  }
+}

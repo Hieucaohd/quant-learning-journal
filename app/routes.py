@@ -13,6 +13,8 @@ from flask import (Blueprint, abort, current_app, flash, g, redirect, render_tem
 
 from .ai_kit import ai_kit_files, ai_prompt
 from .auth import current_user_id
+from .course_transfer import (apply_course_overwrite, inspect_course_overwrite,
+                              parse_course_snapshot, snapshot_json)
 from .db import enroll_catalog_course, get_db, sync_lecture_hours
 from .reports import (build_export, completed_work, courses_with_progress, period_summary,
                       report_data, streak, work_summary)
@@ -566,6 +568,8 @@ def import_plan():
     preview = None
     raw = ""
     source_name = ""
+    import_type = request.form.get("import_type", "merge")
+    selected_plan_id = request.form.get("plan_id", "")
     if request.method == "POST":
         try:
             upload = request.files.get("plan_file")
@@ -582,27 +586,58 @@ def import_plan():
                 source_name = request.form.get("source_name", "").strip()
             if not raw:
                 raise ValueError("Hãy chọn file JSON hoặc dán nội dung JSON")
-            plan = parse_plan(raw)
-            counts = inspect_plan(plan)
-            preview = dict(plan, **counts)
+            if import_type == "overwrite_course":
+                try:
+                    selected_plan_id = int(selected_plan_id)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError("Hãy chọn kế hoạch đang hoạt động cần ghi đè") from exc
+                plan = parse_course_snapshot(raw)
+                counts = inspect_course_overwrite(plan, selected_plan_id)
+                preview = dict(plan, **counts)
+            elif import_type == "merge":
+                plan = parse_plan(raw)
+                counts = inspect_plan(plan)
+                preview = dict(plan, **counts)
+            else:
+                raise ValueError("Chế độ import không hợp lệ")
             if request.form.get("mode") == "confirm":
-                if pending_missed():
-                    raise ValueError("Hãy ghi lý do cho các phần việc quá hạn trước khi import")
-                apply_plan(plan, raw, source_name)
+                if import_type == "overwrite_course":
+                    target_plan_ids = request.form.getlist("target_plan_id")
+                    target_plan_ids = [int(value) for value in target_plan_ids]
+                    selectable_ids = {item["id"] for item in counts["affected_plans"]
+                                      if item["status"] == "Đang hoạt động"}
+                    if not target_plan_ids or not set(target_plan_ids) <= selectable_ids:
+                        raise ValueError("Hãy chọn ít nhất một kế hoạch đang hoạt động để áp dụng")
+                    backup_path = backup_database(f"course-overwrite-{plan['course_id']}")
+                    result = apply_course_overwrite(
+                        plan, selected_plan_id, target_plan_ids, raw, source_name)
+                else:
+                    if pending_missed():
+                        raise ValueError("Hãy ghi lý do cho các phần việc quá hạn trước khi import")
+                    apply_plan(plan, raw, source_name)
                 get_db().commit()
-                flash(f"Đã nhập {plan['task_count']} phần việc từ {plan['lecture_count']} bài học.",
-                      "success")
-                if counts["new_courses"]:
-                    flash("Khóa học mới nằm trong danh mục. Hãy thêm vào một kế hoạch đang hoạt động để đưa lên lịch.",
+                if import_type == "overwrite_course":
+                    flash(f"Đã ghi đè {plan['lecture_count']} bài học và {plan['task_count']} phần việc; "
+                          f"đã áp dụng vào {result['selected_plan_count']} kế hoạch và lập lại lịch. "
+                          f"Bản sao lưu: {backup_path.name}.", "success")
+                else:
+                    flash(f"Đã nhập {plan['task_count']} phần việc từ {plan['lecture_count']} bài học.",
                           "success")
+                    if counts["new_courses"]:
+                        flash("Khóa học mới nằm trong danh mục. Hãy thêm vào một kế hoạch đang hoạt động để đưa lên lịch.",
+                              "success")
                 return redirect(url_for("main.schedule"))
         except (ValueError, KeyError, sqlite3.IntegrityError) as exc:
             get_db().rollback()
             flash(str(exc), "error")
             preview = None
+    active_plans = get_db().execute("""SELECT id, name FROM study_plans
+        WHERE owner_user_id=? AND status='Đang hoạt động' ORDER BY priority, id""",
+                                    (current_user_id(),)).fetchall()
     return render_template("import_plan.html", preview=preview, raw=raw,
                            source_name=source_name, task_types=TASK_TYPES,
-                           ai_prompt=ai_prompt(current_user_id()))
+                           ai_prompt=ai_prompt(current_user_id()), import_type=import_type,
+                           selected_plan_id=str(selected_plan_id), active_plans=active_plans)
 
 
 @bp.get("/import-plan/ai-kit.zip")
@@ -615,6 +650,19 @@ def download_ai_kit():
     output.seek(0)
     return send_file(output, mimetype="application/zip", as_attachment=True,
                      download_name=f"ai-kit-khoa-hoc-{local_today().isoformat()}.zip")
+
+
+@bp.get("/plans/<int:plan_id>/courses/<int:course_id>/export.json")
+def export_plan_course(plan_id, course_id):
+    """Download one course and its complete plan state for AI revision."""
+    try:
+        payload = snapshot_json(plan_id, course_id)
+    except LookupError:
+        abort(404)
+    return send_file(BytesIO(payload.encode("utf-8")),
+                     mimetype="application/json; charset=utf-8", as_attachment=True,
+                     download_name=(f"khoa-hoc-{course_id}-ke-hoach-{plan_id}-"
+                                    f"{local_today().isoformat()}.json"))
 
 
 @bp.route("/plans", methods=["GET", "POST"])
