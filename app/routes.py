@@ -11,7 +11,7 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from flask import (Blueprint, abort, current_app, flash, g, redirect, render_template,
                    request, send_file, url_for)
 
-from .ai_kit import ai_kit_files, ai_prompt
+from .ai_kit import ai_kit_files, ai_prompt, course_replan_kit_files
 from .auth import current_user_id
 from .course_transfer import (apply_course_overwrite, inspect_course_overwrite,
                               parse_course_snapshot, snapshot_json)
@@ -650,6 +650,18 @@ def download_ai_kit():
     output.seek(0)
     return send_file(output, mimetype="application/zip", as_attachment=True,
                      download_name=f"ai-kit-khoa-hoc-{local_today().isoformat()}.zip")
+
+
+@bp.get("/import-plan/course-replan-kit.zip")
+def download_course_replan_kit():
+    """Prompt, guide and schema for revising an exported course snapshot."""
+    output = BytesIO()
+    with ZipFile(output, "w", ZIP_DEFLATED) as archive:
+        for name, content in course_replan_kit_files().items():
+            archive.writestr(f"bo-prompt-dieu-chinh-khoa-hoc/{name}", content)
+    output.seek(0)
+    return send_file(output, mimetype="application/zip", as_attachment=True,
+                     download_name=f"bo-prompt-dieu-chinh-khoa-hoc-{local_today().isoformat()}.zip")
 
 
 @bp.get("/plans/<int:plan_id>/courses/<int:course_id>/export.json")

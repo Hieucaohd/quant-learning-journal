@@ -42,6 +42,7 @@ class AiKitTest(unittest.TestCase):
 
             page = client.get("/import-plan").get_data(as_text=True)
             self.assertIn("/import-plan/ai-kit.zip", page)
+            self.assertIn("/import-plan/course-replan-kit.zip", page)
             self.assertIn("Sao chép prompt", page)
 
             response = client.get("/import-plan/ai-kit.zip")
@@ -61,6 +62,22 @@ class AiKitTest(unittest.TestCase):
             data = json.loads(files["current_courses.json"])
             self.assertEqual([course["name"] for course in data["my_courses"]], ["Giải tích"])
             self.assertEqual(json.loads(files["plan_format.schema.json"])["type"], "object")
+
+            response = client.get("/import-plan/course-replan-kit.zip")
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("attachment", response.headers["Content-Disposition"])
+            with ZipFile(BytesIO(response.data)) as archive:
+                replan_files = {Path(name).name: archive.read(name).decode("utf-8")
+                                for name in archive.namelist()}
+            self.assertEqual(set(replan_files), {
+                "HUONG_DAN.md", "PROMPT_DIEU_CHINH_KHOA_HOC.md",
+                "course_snapshot_format.schema.json",
+            })
+            self.assertIn("Giữ nguyên toàn bộ `history`", replan_files[
+                "PROMPT_DIEU_CHINH_KHOA_HOC.md"])
+            self.assertIn("Ghi đè khóa học trong kế hoạch", replan_files["HUONG_DAN.md"])
+            schema = json.loads(replan_files["course_snapshot_format.schema.json"])
+            self.assertEqual(schema["properties"]["schema_version"]["const"], 2)
 
 
 if __name__ == "__main__":

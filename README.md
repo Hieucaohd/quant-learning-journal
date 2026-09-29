@@ -82,6 +82,8 @@ Mở **Nhập kế hoạch học** để tải file `.json` hoặc dán JSON. �
 
 Trong trang chi tiết kế hoạch, bấm **Xuất JSON để AI điều chỉnh** ở một khóa học. Snapshot phiên bản 2 chứa thông tin kế hoạch và khóa học, toàn bộ bài học/phần việc, số giờ, trạng thái, ngày hoàn thành, hạn dự kiến, lịch đã xếp, lịch sử đổi hạn/trễ hạn/hoàn thành và các nhật ký liên quan. File cũng có `ai_instructions` để AI biết trường nào được sửa và quy tắc giữ tiến độ.
 
+Tại màn hình nhập có nút **Tải bộ prompt điều chỉnh (.zip)**. Bộ này gồm `PROMPT_DIEU_CHINH_KHOA_HOC.md`, hướng dẫn từng bước và JSON Schema phiên bản 2. Tải snapshot riêng từ trang kế hoạch rồi gửi cả ba file cho AI. Bộ prompt tạo mới phiên bản 1 vẫn có nút tải riêng và giữ nguyên định dạng cũ.
+
 Sau khi AI trả lại JSON, mở **Nhập kế hoạch học**, chọn **Ghi đè khóa học trong kế hoạch**, chọn kế hoạch nguồn và kiểm tra file. Ở bước xem trước, tích những kế hoạch cần nhận bản điều chỉnh:
 
 - Nếu chọn tất cả kế hoạch đang chứa khóa học, hệ thống cập nhật khóa học dùng chung tại chỗ.

@@ -121,3 +121,34 @@ def ai_kit_files(user_id):
         "sample_plan.json": (STATIC_DIR / "sample_plan.json").read_text(encoding="utf-8-sig"),
         "current_courses.json": json.dumps(data, ensure_ascii=False, indent=2) + "\n",
     }
+
+
+COURSE_REPLAN_GUIDE = """# Cách dùng bộ prompt điều chỉnh khóa học
+
+1. Trong trang chi tiết kế hoạch, bấm **Xuất JSON để AI điều chỉnh** tại khóa học cần sửa.
+2. Giải nén bộ ZIP này.
+3. Tải lên AI ba file:
+   - snapshot khóa học vừa xuất;
+   - `PROMPT_DIEU_CHINH_KHOA_HOC.md`;
+   - `course_snapshot_format.schema.json`.
+4. Điền phần **Thông tin tôi cung cấp cho lần điều chỉnh này** trong prompt, hoặc mô tả trực tiếp
+   các bất cập, mục tiêu và giới hạn trong tin nhắn gửi AI.
+5. Yêu cầu AI làm theo prompt. AI phải trả về đúng một đối tượng JSON phiên bản 2.
+6. Trong ứng dụng, mở **Nhập kế hoạch học**, chọn **Ghi đè khóa học trong kế hoạch**,
+   chọn kế hoạch nguồn, tải JSON mới lên và bấm **Kiểm tra và xem trước**.
+7. Tích chính xác các kế hoạch cần nhận bản điều chỉnh rồi xác nhận.
+
+Ứng dụng sẽ kiểm tra cấu trúc và trạng thái hoàn thành, sao lưu dữ liệu cũ và lập lại lịch.
+Bộ prompt tạo khóa học mới dùng định dạng phiên bản 1 là một bộ riêng và vẫn được giữ nguyên.
+"""
+
+
+def course_replan_kit_files():
+    """Static prompt package used with an exported schema-v2 course snapshot."""
+    return {
+        "HUONG_DAN.md": COURSE_REPLAN_GUIDE,
+        "PROMPT_DIEU_CHINH_KHOA_HOC.md": (
+            STATIC_DIR / "AI_COURSE_REPLAN_PROMPT.md").read_text(encoding="utf-8-sig"),
+        "course_snapshot_format.schema.json": (
+            STATIC_DIR / "course_snapshot_format.schema.json").read_text(encoding="utf-8-sig"),
+    }
