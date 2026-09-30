@@ -335,6 +335,9 @@ def schedule():
             LEFT JOIN lectures l ON l.id=a.lecture_id
             LEFT JOIN lecture_tasks t ON t.id=a.task_id
             WHERE a.course_id IN ({course_placeholders})
+            AND ((a.task_id IS NOT NULL AND t.status!='Hoàn thành') OR
+                 (a.task_id IS NULL AND a.lecture_id IS NOT NULL AND l.status!='Hoàn thành') OR
+                 (a.lecture_id IS NULL AND c.status!='Hoàn thành'))
             ORDER BY a.study_date, a.id""", sorted(selected_course_ids)).fetchall()
     segment_metadata = allocation_segment_metadata(allocation_rows)
     day_summaries = {}
