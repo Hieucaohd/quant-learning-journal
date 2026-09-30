@@ -18,8 +18,8 @@ from .course_transfer import (apply_course_overwrite, inspect_course_overwrite,
 from .db import enroll_catalog_course, get_db, sync_lecture_hours
 from .reports import (build_export, completed_work, courses_with_progress, period_summary,
                       report_data, streak, work_summary)
-from .scheduler import (active_course_ids, capacity_on, course_deadlines, day_plan, ensure_plan,
-                        pending_missed, replan)
+from .scheduler import (active_course_ids, allocation_segment_metadata, capacity_on,
+                        course_deadlines, day_plan, ensure_plan, pending_missed, replan)
 from .timezone import local_today
 from .plan_import import TASK_TYPES, apply_plan, inspect_plan, parse_plan
 
@@ -324,22 +324,50 @@ def schedule():
             plan_labels.setdefault(row["course_id"], []).append(plan_by_id[row["id"]]["label"])
     own_course_ids = {row["id"] for row in db.execute(
         "SELECT id FROM courses WHERE owner_user_id=?", (user_id,))}
-    rows = db.execute("""SELECT study_date, course_id, hours FROM schedule_allocations
-        WHERE study_date BETWEEN ? AND ?""", (month_start.isoformat(), month_end.isoformat()))
+    allocation_rows = []
+    if selected_course_ids:
+        course_placeholders = ",".join("?" for _ in selected_course_ids)
+        allocation_rows = db.execute(f"""SELECT a.study_date, a.course_id, a.lecture_id,
+            a.task_id, a.hours, c.display_name AS course_name, l.lecture_number,
+            l.title AS lecture_title, t.title AS part_title
+            FROM schedule_allocations a
+            JOIN courses c ON c.id=a.course_id
+            LEFT JOIN lectures l ON l.id=a.lecture_id
+            LEFT JOIN lecture_tasks t ON t.id=a.task_id
+            WHERE a.course_id IN ({course_placeholders})
+            ORDER BY a.study_date, a.id""", sorted(selected_course_ids)).fetchall()
+    segment_metadata = allocation_segment_metadata(allocation_rows)
     day_summaries = {}
-    for row in rows:
-        if row["course_id"] not in selected_course_ids:
+    for row in allocation_rows:
+        if not month_start.isoformat() <= row["study_date"] <= month_end.isoformat():
             continue
         item = day_summaries.setdefault(row["study_date"], {
-            "hours": 0, "shared_hours": 0, "course_ids": set()})
+            "hours": 0, "shared_hours": 0, "course_ids": set(), "work_by_key": {}})
         item["hours" if row["course_id"] in own_course_ids else "shared_hours"] += row["hours"]
         item["course_ids"].add(row["course_id"])
-    for item in day_summaries.values():
+        if row["task_id"] is not None:
+            work_key = ("task", row["task_id"])
+            work_label = f"Bài {row['lecture_number']} · {row['part_title']}"
+        elif row["lecture_id"] is not None:
+            work_key = ("lecture", row["lecture_id"])
+            work_label = f"Bài {row['lecture_number']} · {row['lecture_title'] or 'Chưa có tiêu đề'}"
+        else:
+            work_key = ("course", row["course_id"])
+            work_label = row["course_name"]
+        work_item = item["work_by_key"].setdefault(work_key, {
+            "key": work_key, "label": work_label, "hours": 0,
+            "is_shared": row["course_id"] not in own_course_ids,
+        })
+        work_item["hours"] = round(work_item["hours"] + row["hours"], 2)
+    for study_date, item in day_summaries.items():
         course_ids = item.pop("course_ids")
         item["courses"] = len(course_ids & own_course_ids)
         item["plans"] = list(dict.fromkeys(
             name for course_id in sorted(course_ids)
             for name in plan_labels.get(course_id, [])))
+        item["work_items"] = list(item.pop("work_by_key").values())
+        for work_item in item["work_items"]:
+            work_item.update(segment_metadata[(work_item.pop("key"), study_date)])
     owner_names = {plan["owner_user_id"]: plan["owner_name"] for plan in plans}
     shared_courses = [
         dict(course, owner_name=owner_names[owner_id])

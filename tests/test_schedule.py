@@ -362,6 +362,47 @@ class ScheduleTest(unittest.TestCase):
             db.commit()
         return app
 
+    def test_task_is_split_across_days_and_each_segment_is_shown(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = create_app({"TESTING": True,
+                              "DATABASE": str(Path(directory) / "journal.sqlite3")})
+            with app.app_context():
+                db = get_db()
+                db.execute("INSERT INTO courses (name) VALUES ('Khóa có phần việc dài')")
+                db.execute("INSERT INTO plan_courses (plan_id, course_id, position) VALUES (1, 1, 1)")
+                db.execute("""INSERT INTO lectures
+                    (course_id, lecture_number, title, estimated_hours, remaining_hours)
+                    VALUES (1, 1, 'Bài cần chia lịch', 8, 8)""")
+                db.execute("""INSERT INTO lecture_tasks
+                    (lecture_id, position, kind, title, estimated_hours, remaining_hours)
+                    VALUES (1, 1, 'video', 'Phần việc trước', 3.5, 3.5),
+                           (1, 2, 'practice', 'Phần việc 4,5 giờ', 4.5, 4.5)""")
+                db.execute("""UPDATE user_capacity_profiles
+                    SET hours_json='[4,4,4,4,4,4,4]' WHERE user_id=1""")
+                db.commit()
+
+            client = app.test_client()
+            today = date.today()
+            tomorrow = today + timedelta(days=1)
+            first_page = client.get("/schedule", query_string={
+                "date": today.isoformat(),
+            }).get_data(as_text=True)
+            second_page = client.get("/schedule", query_string={
+                "date": tomorrow.isoformat(),
+            }).get_data(as_text=True)
+
+            with app.app_context():
+                allocations = get_db().execute("""SELECT study_date, hours
+                    FROM schedule_allocations WHERE task_id=2 ORDER BY study_date""").fetchall()
+                self.assertEqual([(row["study_date"], row["hours"]) for row in allocations], [
+                    (today.isoformat(), 0.5), (tomorrow.isoformat(), 4),
+                ])
+            self.assertIn("Phần việc 4,5 giờ · 0.5/4.5 giờ · phần 1/2", first_page)
+            self.assertIn("Phần học trong ngày: 0.5/4.5 giờ", first_page)
+            self.assertIn("Phần 1/2", first_page)
+            self.assertIn("Phần học trong ngày: 4/4.5 giờ", second_page)
+            self.assertIn("Phần 2/2", second_page)
+
     def test_daily_allocation_and_capacity_replan_history(self):
         with tempfile.TemporaryDirectory() as directory:
             app = self.make_app(directory)

@@ -363,6 +363,50 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
     return new_deadlines
 
 
+def allocation_segment_metadata(rows):
+    """Describe how each scheduled work item is split across study days.
+
+    Multiple allocation records for the same work item and date are treated as
+    one segment. This can happen when the fair-share scheduler revisits a plan
+    more than once while filling the remaining capacity of a day.
+    """
+    hours_by_work = defaultdict(lambda: defaultdict(float))
+    for row in rows:
+        if row["task_id"] is not None:
+            work_key = ("task", row["task_id"])
+        elif row["lecture_id"] is not None:
+            work_key = ("lecture", row["lecture_id"])
+        else:
+            work_key = ("course", row["course_id"])
+        hours_by_work[work_key][row["study_date"]] += row["hours"]
+
+    result = {}
+    for work_key, hours_by_day in hours_by_work.items():
+        dates = sorted(hours_by_day)
+        total = round(sum(hours_by_day.values()), 2)
+        before = 0.0
+        for index, study_date in enumerate(dates, start=1):
+            hours = round(hours_by_day[study_date], 2)
+            after = round(total - before - hours, 2)
+            result[(work_key, study_date)] = {
+                "segment_index": index,
+                "segment_count": len(dates),
+                "scheduled_total_hours": total,
+                "scheduled_before_hours": round(before, 2),
+                "scheduled_after_hours": after,
+            }
+            before += hours
+    return result
+
+
+def _allocation_key(row):
+    if row["task_id"] is not None:
+        return ("task", row["task_id"])
+    if row["lecture_id"] is not None:
+        return ("lecture", row["lecture_id"])
+    return ("course", row["course_id"])
+
+
 def day_plan(day, plan_ids=None, include_others=False):
     """Allocations for `day`, limited to `plan_ids` when given.
 
@@ -397,4 +441,30 @@ def day_plan(day, plan_ids=None, include_others=False):
             AND p.status='Đang hoạt động' AND pc.plan_id IN ({placeholders}))"""
         params.extend(plan_ids)
     query += " ORDER BY is_shared, u.username, a.id"
-    return get_db().execute(query, params).fetchall()
+    db = get_db()
+    rows = db.execute(query, params).fetchall()
+    if not rows:
+        return []
+
+    # Present one line per work item per day even if the scheduler created
+    # several allocation records while balancing multiple active plans.
+    items = []
+    by_key = {}
+    for row in rows:
+        item_key = _allocation_key(row)
+        if item_key in by_key:
+            by_key[item_key]["hours"] = round(by_key[item_key]["hours"] + row["hours"], 2)
+        else:
+            item = dict(row)
+            by_key[item_key] = item
+            items.append(item)
+
+    course_ids = sorted({item["course_id"] for item in items})
+    placeholders = ",".join("?" for _ in course_ids)
+    all_allocations = db.execute(f"""SELECT course_id, lecture_id, task_id, study_date, hours
+        FROM schedule_allocations WHERE course_id IN ({placeholders})""", course_ids).fetchall()
+    metadata = allocation_segment_metadata(all_allocations)
+    day_key = day.isoformat()
+    for item in items:
+        item.update(metadata[(_allocation_key(item), day_key)])
+    return items
