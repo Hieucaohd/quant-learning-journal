@@ -427,11 +427,7 @@ def day_plan(day, plan_ids=None, include_others=False):
         JOIN users u ON u.id=c.owner_user_id
         LEFT JOIN lectures l ON l.id=a.lecture_id
         LEFT JOIN lecture_tasks t ON t.id=a.task_id
-        WHERE a.study_date=? AND (
-            (a.task_id IS NOT NULL AND t.status!='Hoàn thành') OR
-            (a.task_id IS NULL AND a.lecture_id IS NOT NULL AND l.status!='Hoàn thành') OR
-            (a.lecture_id IS NULL AND c.status!='Hoàn thành')
-        )"""
+        WHERE a.study_date=?"""
     params = [user_id, day.isoformat()]
     if not include_others:
         query += " AND c.owner_user_id=?"

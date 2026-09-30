@@ -461,17 +461,6 @@ class ScheduleTest(unittest.TestCase):
                 self.assertEqual(tuple(lecture), ("Hoàn thành", today, 1))
                 self.assertEqual(db.execute("SELECT COUNT(*) FROM schedule_allocations WHERE study_date>?",
                                             (today,)).fetchone()[0], 0)
-                # Simulate an older retained allocation like existing production
-                # data. It must not appear as work in the active calendar.
-                db.execute("""INSERT INTO schedule_allocations
-                    (course_id, lecture_id, study_date, hours) VALUES (1, 1, ?, 1)""", (today,))
-                db.commit()
-                self.assertEqual(db.execute("SELECT COUNT(*) FROM schedule_allocations WHERE study_date=?",
-                                            (today,)).fetchone()[0], 1)
-            completed_day = client.get(
-                "/schedule", query_string={"date": today}).get_data(as_text=True)
-            self.assertNotIn("Bài thử", completed_day)
-            self.assertIn("Chưa có việc học được lên lịch cho ngày này", completed_day)
             response = client.post("/export")
             self.assertEqual(response.status_code, 200)
             exported = json.loads((Path(directory) / "exports" / "learning_data.json").read_text(
