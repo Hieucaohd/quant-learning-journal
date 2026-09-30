@@ -1345,8 +1345,10 @@ def add_lecture(course_id):
                  f"Bài mới kế thừa hạn của Bài {number} trước khi chèn"))
         get_db().execute("""UPDATE courses SET status='Đang học'
             WHERE id=? AND status='Hoàn thành'""", (course_id,))
-        planning_start = min(local_today(), date.fromisoformat(course["start_date"])) \
-            if insert_before and course["start_date"] else local_today()
+        # A structural edit must only redistribute unfinished work from today.
+        # Replanning from the original course start date can place open work back
+        # into past capacity and immediately make its newly calculated deadline overdue.
+        planning_start = local_today()
         replan(planning_start,
                f"{'Chèn' if insert_before else 'Thêm'} bài {number}",
                preserve_overdue=True,

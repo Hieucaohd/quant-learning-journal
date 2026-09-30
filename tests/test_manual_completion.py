@@ -170,6 +170,54 @@ class ManualCompletionTest(unittest.TestCase):
                 self.assertEqual(db.execute("SELECT SUM(hours) FROM schedule_allocations").fetchone()[0],
                                  1)
 
+    def test_inserting_lesson_never_reschedules_open_work_into_past_course_days(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = create_app({"TESTING": True,
+                              "DATABASE": str(Path(directory) / "journal.sqlite3")})
+            today = date.today()
+            yesterday = (today - timedelta(days=1)).isoformat()
+            with app.app_context():
+                db = get_db()
+                db.execute("""INSERT INTO courses (name, start_date, status)
+                    VALUES ('Khóa có lịch quá khứ', ?, 'Đang học')""",
+                           ((today - timedelta(days=30)).isoformat(),))
+                db.execute("INSERT INTO plan_courses (plan_id, course_id, position) VALUES (1, 1, 1)")
+                first = db.execute("""INSERT INTO lectures
+                    (course_id, lecture_number, title, estimated_hours, remaining_hours, deadline)
+                    VALUES (1, 1, 'Việc đang học', 1.5, 1.5, ?)""",
+                                   (today.isoformat(),)).lastrowid
+                task = db.execute("""INSERT INTO lecture_tasks
+                    (lecture_id, position, kind, title, estimated_hours, remaining_hours, deadline)
+                    VALUES (?, 1, 'video', 'Phần việc 1,5 giờ', 1.5, 1.5, ?)""",
+                                  (first, today.isoformat())).lastrowid
+                db.execute("""INSERT INTO lectures
+                    (course_id, lecture_number, title, estimated_hours, remaining_hours, deadline)
+                    VALUES (1, 2, 'Bài phía sau', 1, 1, ?)""",
+                           ((today + timedelta(days=1)).isoformat(),))
+                # This is the split the user saw before inserting another lesson.
+                db.execute("""INSERT INTO schedule_allocations
+                    (course_id, lecture_id, task_id, study_date, hours)
+                    VALUES (1, ?, ?, ?, .5)""", (first, task, yesterday))
+                db.execute("""INSERT INTO schedule_allocations
+                    (course_id, lecture_id, task_id, study_date, hours)
+                    VALUES (1, ?, ?, ?, 1)""", (first, task, today.isoformat()))
+                db.commit()
+
+            response = app.test_client().post("/courses/1/lectures", data={
+                "insert_before": "2", "lecture_number": "99", "title": "Bài ôn tập chèn thêm",
+            })
+            self.assertEqual(response.status_code, 302)
+            with app.app_context():
+                db = get_db()
+                updated = db.execute(
+                    "SELECT deadline FROM lecture_tasks WHERE id=?", (task,)).fetchone()
+                self.assertGreaterEqual(updated["deadline"], today.isoformat())
+                self.assertIsNone(db.execute("""SELECT MIN(study_date)
+                    FROM schedule_allocations WHERE task_id=? AND study_date<?""",
+                                             (task, today.isoformat())).fetchone()[0])
+                self.assertAlmostEqual(db.execute("""SELECT SUM(hours)
+                    FROM schedule_allocations WHERE task_id=?""", (task,)).fetchone()[0], 1.5)
+
     def test_tasks_can_be_added_manually_inside_each_lesson(self):
         with tempfile.TemporaryDirectory() as directory:
             app = create_app({"TESTING": True,
