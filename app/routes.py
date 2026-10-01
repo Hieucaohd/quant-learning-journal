@@ -347,7 +347,9 @@ def schedule():
         item["course_ids"].add(row["course_id"])
         if row["task_id"] is not None:
             work_key = ("task", row["task_id"])
-            work_label = f"Bài {row['lecture_number']} · {row['part_title']}"
+            lecture_label = row["lecture_title"] or "Chưa có tiêu đề"
+            work_label = (f"Bài {row['lecture_number']}: {lecture_label}"
+                          f" · {row['part_title']}")
         elif row["lecture_id"] is not None:
             work_key = ("lecture", row["lecture_id"])
             work_label = f"Bài {row['lecture_number']} · {row['lecture_title'] or 'Chưa có tiêu đề'}"

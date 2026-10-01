@@ -397,7 +397,10 @@ class ScheduleTest(unittest.TestCase):
                 self.assertEqual([(row["study_date"], row["hours"]) for row in allocations], [
                     (today.isoformat(), 0.5), (tomorrow.isoformat(), 4),
                 ])
-            self.assertIn("Phần việc 4,5 giờ · 0.5/4.5 giờ · phần 1/2", first_page)
+            self.assertIn(
+                "Bài 1: Bài cần chia lịch · Phần việc 4,5 giờ · 0.5/4.5 giờ · phần 1/2",
+                first_page)
+            self.assertIn("Bài học tương ứng:</span> Bài 1 · Bài cần chia lịch", first_page)
             self.assertIn("Phần học trong ngày: 0.5/4.5 giờ", first_page)
             self.assertIn("Phần 1/2", first_page)
             self.assertIn("Phần học trong ngày: 4/4.5 giờ", second_page)

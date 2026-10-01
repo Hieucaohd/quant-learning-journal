@@ -27,7 +27,8 @@
     {% if day_tasks %}<div class="day-tasks">{% for item in day_tasks %}{% set editable = not item.is_shared %}<article class="day-task{% if item.is_shared %} shared{% endif %}">
       <p class="eyebrow">{% if item.is_shared %}<span class="owner-badge">@{{ item.owner_name }} · chỉ xem</span> {% endif %}{{ item.course_name }} · {{ '%g'|format(item.hours) }} giờ</p><p class="muted small">Kế hoạch: {{ plan_labels.get(item.course_id, [])|join(', ') }}</p>
       {% if item.task_id %}
-        <h3>Bài {{ item.lecture_number }} · {{ task_types[item.part_kind] }}: {{ item.part_title }}</h3>
+        <h3>{{ task_types[item.part_kind] }}: {{ item.part_title }}</h3>
+        <p class="task-lesson"><span>Bài học tương ứng:</span> Bài {{ item.lecture_number }} · {{ item.title or 'Chưa đặt tiêu đề' }}</p>
         <p>{{ item.part_content or item.content or 'Chưa có mô tả chi tiết.' }}</p>
         <div class="allocation-split"><strong>Phần học trong ngày: {{ '%g'|format(item.hours) }}/{{ '%g'|format(item.scheduled_total_hours) }} giờ</strong>{% if item.segment_count > 1 %}<span>Phần {{ item.segment_index }}/{{ item.segment_count }}</span>{% endif %}</div>
         {% if item.segment_count > 1 %}<p class="muted small allocation-context">Đã xếp trước ngày này: {{ '%g'|format(item.scheduled_before_hours) }} giờ · Còn xếp sau ngày này: {{ '%g'|format(item.scheduled_after_hours) }} giờ</p>{% endif %}
