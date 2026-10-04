@@ -44,7 +44,12 @@
           {% if item.deadline and item.deadline <= today.isoformat() %}<form method="post" action="{{ url_for('main.miss_lecture', lecture_id=item.lecture_id) }}" class="task-action">{{ filter_fields(selected_ids) }}<input type="hidden" name="return_date" value="{{ selected.isoformat() }}"><input name="reason" required placeholder="Vì sao chưa hoàn thành?"><button class="button" type="submit">Chưa xong · Lùi hạn</button></form>{% endif %}
         {% endif %}
       {% else %}<h3>Học nội dung khóa học</h3><p class="muted small">Hãy thêm bài học để có kế hoạch chi tiết.</p>{% endif %}
-    </article>{% endfor %}</div>{% else %}<p class="empty">Chưa có việc học được lên lịch cho ngày này.</p>{% endif %}
+    </article>{% endfor %}</div>{% else %}<p class="empty">Chưa có việc học được lên lịch cho ngày này.</p>
+      {% if not selected_ids %}<p class="notice compact">Bạn chưa chọn kế hoạch nào trong bộ lọc. Chọn kế hoạch để xem công việc trên lịch.</p>
+      {% elif selected == today and pending %}<p class="notice compact">Bạn còn {{ pending|length }} mục quá hạn đang chờ ghi lý do để xếp lại. <a href="#overdue-items">Xử lý các mục quá hạn bên dưới</a>.</p>
+      {% elif selected == today and capacity == 0 %}<p class="notice compact">Quỹ giờ học hôm nay đang là 0. Bạn có thể điều chỉnh trong phần “Đổi giờ cho một ngày”.</p>
+      {% elif selected != today %}<p class="muted small">Bạn đang xem ngày {{ selected.isoformat() }}. <a href="{{ url_for('main.schedule', date=today.isoformat(), filter=1, plan_id=selected_ids) }}">Xem việc hôm nay ({{ today.isoformat() }})</a>.</p>{% endif %}
+    {% endif %}
   </section>
 </div>
 {% if pending %}

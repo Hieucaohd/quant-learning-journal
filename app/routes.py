@@ -139,10 +139,9 @@ def backup_database(label):
 
 
 def refresh_schedule(reason):
+    replan(local_today(), reason, preserve_overdue=True)
     if pending_missed():
-        flash("Có bài quá hạn cần ghi lý do trước khi tính lại lịch.", "error")
-    else:
-        replan(local_today(), reason)
+        flash("Đã cập nhật lịch các việc còn lại. Mục quá hạn vẫn chờ bạn ghi lý do để lùi hạn.", "error")
 
 
 def return_to_schedule():
@@ -299,6 +298,9 @@ def schedule():
         abort(400)
     month_start = selected.replace(day=1)
     month_end = (month_start.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    calendar_weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(selected.year, selected.month)
+    calendar_start = calendar_weeks[0][0].isoformat()
+    calendar_end = calendar_weeks[-1][-1].isoformat()
     user_id = current_user_id()
     plans = visible_plans(user_id)
     plan_by_id = {plan["id"]: plan for plan in plans}
@@ -339,7 +341,7 @@ def schedule():
     segment_metadata = allocation_segment_metadata(allocation_rows)
     day_summaries = {}
     for row in allocation_rows:
-        if not month_start.isoformat() <= row["study_date"] <= month_end.isoformat():
+        if not calendar_start <= row["study_date"] <= calendar_end:
             continue
         item = day_summaries.setdefault(row["study_date"], {
             "hours": 0, "shared_hours": 0, "course_ids": set(), "work_by_key": {}})
@@ -378,7 +380,6 @@ def schedule():
         if owner_id != user_id
         for course in courses_with_progress(owner_id)
         if course["id"] in selected_course_ids]
-    calendar_weeks = calendar.Calendar(firstweekday=0).monthdatescalendar(selected.year, selected.month)
     courses = [course for course in courses_with_progress()
                if course["id"] in selected_course_ids]
     projections = course_deadlines()
@@ -451,7 +452,7 @@ def capacity_profile():
             (user_id, effective_date, old_hours, new_hours, reason, kind)
             VALUES (?, ?, ?, ?, ?, 'lịch tuần')""",
             (user_id, effective, old_hours, encoded, reason))
-        replan(local_today(), f"Thay đổi số giờ học từ {effective}: {reason}")
+        refresh_schedule(f"Thay đổi số giờ học từ {effective}: {reason}")
         db.commit()
         flash("Đã cập nhật giờ học và tính lại các hạn hoàn thành.", "success")
     except (ValueError, KeyError) as exc:
@@ -482,7 +483,7 @@ def capacity_override():
             (user_id, effective_date, old_hours, new_hours, reason, kind)
             VALUES (?, ?, ?, ?, ?, 'ngày riêng')""",
             (user_id, study_date, str(old["hours"]) if old else None, str(hours), reason))
-        replan(local_today(), f"Đổi số giờ ngày {study_date}: {reason}")
+        refresh_schedule(f"Đổi số giờ ngày {study_date}: {reason}")
         db.commit()
         flash("Đã cập nhật ngày học và tính lại các hạn hoàn thành.", "success")
     except (ValueError, KeyError) as exc:
@@ -574,19 +575,11 @@ def miss_lecture(lecture_id):
         old = lecture["deadline"]
         db.execute("""INSERT INTO missed_deadlines (lecture_id, old_deadline, reason)
             VALUES (?, ?, ?)""", (lecture_id, old, reason))
-        db.execute("UPDATE lectures SET deadline=NULL WHERE id=?", (lecture_id,))
-        start = max(local_today(), date.fromisoformat(old) + timedelta(days=1))
-        db.execute("SAVEPOINT missed_replan")
-        try:
-            replan(start, f"Bài {lecture['lecture_number']} trễ hạn: {reason}")
-            flash("Đã ghi lý do và lùi hạn hoàn thành.", "success")
-        except ValueError:
-            db.execute("ROLLBACK TO missed_replan")
-            flash("Đã ghi lý do. Hãy xử lý các bài quá hạn hoặc cập nhật giờ học để tính lại lịch.",
-                  "success")
-        finally:
-            db.execute("RELEASE missed_replan")
+        db.execute("UPDATE lectures SET deadline=NULL, manual_deadline=NULL WHERE id=?", (lecture_id,))
+        replan(local_today(), f"Bài {lecture['lecture_number']} trễ hạn: {reason}",
+               preserve_overdue=True)
         db.commit()
+        flash("Đã ghi lý do và lùi hạn hoàn thành.", "success")
     except (ValueError, KeyError) as exc:
         db.rollback()
         flash(str(exc), "error")
@@ -867,8 +860,10 @@ def delete_plan(plan_id):
     if request.form.get("name", "").strip() != plan["name"]:
         flash("Tên xác nhận chưa khớp. Kế hoạch chưa bị xóa.", "error")
         return redirect(url_for("main.plan_detail", plan_id=plan_id))
-    db.execute("DELETE FROM study_plans WHERE id=?", (plan_id,))
     try:
+        db.execute("DELETE FROM plan_shares WHERE plan_id=?", (plan_id,))
+        db.execute("DELETE FROM plan_courses WHERE plan_id=?", (plan_id,))
+        db.execute("DELETE FROM study_plans WHERE id=?", (plan_id,))
         refresh_schedule(f"Xóa kế hoạch {plan['name']}")
         db.commit()
         flash("Đã xóa kế hoạch. Các khóa học vẫn còn trong danh mục.", "success")
@@ -932,31 +927,15 @@ def add_task(lecture_id):
         estimated = workload_hours(request.form.get("estimated_hours", ""))
         if estimated <= 0:
             raise ValueError("Thời lượng phần việc phải lớn hơn 0")
-        existing_count = db.execute(
-            "SELECT COUNT(*) FROM lecture_tasks WHERE lecture_id=?", (lecture_id,)).fetchone()[0]
         position = db.execute(
             "SELECT COALESCE(MAX(position), 0) + 1 FROM lecture_tasks WHERE lecture_id=?",
             (lecture_id,)).fetchone()[0]
-        inherited_deadline = lecture["deadline"] if existing_count == 0 else None
-        if existing_count == 0 and lecture["manual_deadline"]:
-            latest_deadline_source = db.execute("""SELECT kind FROM schedule_events
-                WHERE lecture_id=? AND task_id IS NULL
-                AND kind IN ('kế thừa hạn', 'đặt hạn thủ công')
-                ORDER BY id DESC LIMIT 1""", (lecture_id,)).fetchone()
-            if (latest_deadline_source
-                    and latest_deadline_source["kind"] == "kế thừa hạn"):
-                # An inserted zero-hour lesson temporarily inherits the displaced
-                # lesson's deadline so it has a visible position in the course.
-                # Once real work is added, that inherited date must become
-                # automatic again; otherwise it acts like a user-fixed barrier.
-                db.execute("UPDATE lectures SET manual_deadline=NULL WHERE id=?",
-                           (lecture_id,))
         task_id = db.execute("""INSERT INTO lecture_tasks
             (lecture_id, position, kind, title, content, estimated_hours,
              remaining_hours, deadline)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (lecture_id, position, kind, title, request.form.get("content", "").strip(),
-             estimated, estimated, inherited_deadline)).lastrowid
+             estimated, estimated, None)).lastrowid
         update_lecture_from_tasks(lecture_id)
         last_event_id = db.execute(
             "SELECT COALESCE(MAX(id), 0) FROM schedule_events").fetchone()[0]
@@ -1099,19 +1078,18 @@ def miss_task(task_id):
         db.execute("""INSERT INTO missed_deadlines
             (lecture_id, task_id, old_deadline, reason) VALUES (?, ?, ?, ?)""",
             (lecture["id"], task_id, old, reason))
-        db.execute("UPDATE lecture_tasks SET deadline=NULL WHERE id=?", (task_id,))
-        start = max(local_today(), date.fromisoformat(old) + timedelta(days=1))
-        db.execute("SAVEPOINT missed_task_replan")
-        try:
-            replan(start, f"Phần việc trễ hạn: {reason}")
-            flash("Đã ghi lý do và lùi hạn phần việc.", "success")
-        except ValueError:
-            db.execute("ROLLBACK TO missed_task_replan")
-            flash("Đã ghi lý do. Hãy xử lý các phần việc quá hạn còn lại để tính lại lịch.",
-                  "success")
-        finally:
-            db.execute("RELEASE missed_task_replan")
+        db.execute("UPDATE lecture_tasks SET deadline=NULL, manual_deadline=NULL WHERE id=?", (task_id,))
+        # The old lesson date cannot remain fixed when one of its parts is
+        # explicitly postponed beyond it. Record why the lesson constraint moved.
+        if lecture['manual_deadline'] and lecture['manual_deadline'] <= local_today().isoformat():
+            db.execute('UPDATE lectures SET manual_deadline=NULL WHERE id=?', (lecture['id'],))
+            db.execute("""INSERT INTO schedule_events
+                (course_id,lecture_id,old_deadline,reason,kind)
+                VALUES (?,?,?,?,'bỏ hạn thủ công')""",
+                (lecture['course_id'], lecture['id'], lecture['deadline'], reason))
+        replan(local_today(), f"Phần việc trễ hạn: {reason}", preserve_overdue=True)
         db.commit()
+        flash("Đã ghi lý do và lùi hạn phần việc.", "success")
     except (ValueError, KeyError) as exc:
         db.rollback()
         flash(str(exc), "error")
@@ -1331,18 +1309,17 @@ def delete_course(course_id):
         else:
             try:
                 backup_path = backup_database(f"course-{course_id}")
+                lecture_scope = 'SELECT id FROM lectures WHERE course_id=?'
+                for table in ('missed_deadlines', 'lecture_tasks'):
+                    db.execute(f'DELETE FROM {table} WHERE lecture_id IN ({lecture_scope})', (course_id,))
+                for table in ('schedule_allocations', 'schedule_events', 'completion_events', 'plan_courses'):
+                    db.execute(f'DELETE FROM {table} WHERE course_id=?', (course_id,))
+                db.execute('DELETE FROM lectures WHERE course_id=?', (course_id,))
                 db.execute("DELETE FROM journals WHERE course_id=?", (course_id,))
                 db.execute("DELETE FROM courses WHERE id=?", (course_id,))
-                if not pending_missed():
-                    db.execute("SAVEPOINT delete_replan")
-                    try:
-                        replan(local_today(), f"Xóa khóa học {course_name}")
-                    except ValueError:
-                        db.execute("ROLLBACK TO delete_replan")
-                    finally:
-                        db.execute("RELEASE delete_replan")
+                replan(local_today(), f"Xóa khóa học {course_name}", preserve_overdue=True)
                 db.commit()
-            except (OSError, sqlite3.Error) as exc:
+            except (OSError, sqlite3.Error, ValueError) as exc:
                 db.rollback()
                 flash(f"Không thể xóa khóa học: {exc}", "error")
             else:
@@ -1422,6 +1399,11 @@ def delete_lecture(lecture_id):
         label += f" · {lecture['title']}"
     try:
         backup_path = backup_database(f"lecture-{lecture_id}")
+        # Remote libSQL may not enforce FK cascades: delete all children before
+        # their lesson so no orphan allocations can consume today's capacity.
+        for table in ("schedule_allocations", "schedule_events", "completion_events",
+                      "missed_deadlines", "lecture_tasks"):
+            db.execute(f"DELETE FROM {table} WHERE lecture_id=?", (lecture_id,))
         db.execute("DELETE FROM lectures WHERE id=?", (lecture_id,))
         later = db.execute("""SELECT id, lecture_number, title FROM lectures
             WHERE course_id=? AND lecture_number>? ORDER BY lecture_number""",

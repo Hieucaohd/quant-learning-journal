@@ -1,10 +1,10 @@
 import json
 from collections import defaultdict
-from datetime import timedelta
+from datetime import date, timedelta
 
 from .auth import current_user_id
 from .db import get_db
-from .timezone import local_today
+from .timezone import local_today, to_local
 
 
 def capacity_on(day, profiles=None, overrides=None):
@@ -66,7 +66,7 @@ def pending_missed(today=None):
         t.deadline, l.id, l.course_id, l.lecture_number, l.title, c.display_name AS course_name
         FROM lecture_tasks t JOIN lectures l ON l.id=t.lecture_id
         JOIN courses c ON c.id=l.course_id
-        WHERE t.status != 'Hoàn thành' AND t.deadline < ? AND
+        WHERE t.status != 'Hoàn thành' AND t.remaining_hours>0 AND t.deadline < ? AND
         EXISTS (SELECT 1 FROM plan_courses pc JOIN study_plans p ON p.id=pc.plan_id
                 WHERE pc.course_id=l.course_id AND p.status='Đang hoạt động'
                 AND p.owner_user_id=?)""",
@@ -78,9 +78,31 @@ def pending_missed(today=None):
 
 def ensure_plan(today=None):
     db = get_db()
-    if not db.execute("""SELECT 1 FROM schedule_allocations a JOIN courses c ON c.id=a.course_id
-        WHERE c.owner_user_id=? LIMIT 1""", (current_user_id(),)).fetchone():
-        replan(today or local_today(), "Lập lịch học ban đầu")
+    # History alone does not prove that all current work has been scheduled.
+    # Check hours per work item, scoped to the signed-in user's active plans.
+    missing = db.execute("""WITH active AS (
+        SELECT DISTINCT c.id, c.estimated_hours FROM courses c
+        JOIN plan_courses pc ON pc.course_id=c.id JOIN study_plans p ON p.id=pc.plan_id
+        WHERE c.owner_user_id=? AND p.status='Đang hoạt động' AND c.status!='Hoàn thành'
+    ), work AS (
+        SELECT c.id AS course_id, l.id AS lecture_id, t.id AS task_id,
+               t.remaining_hours AS hours, t.deadline FROM active c JOIN lectures l ON l.course_id=c.id
+        JOIN lecture_tasks t ON t.lecture_id=l.id
+        WHERE l.status!='Hoàn thành' AND t.status!='Hoàn thành' AND t.remaining_hours>0
+        UNION ALL
+        SELECT c.id,l.id,NULL,l.remaining_hours,l.deadline FROM active c JOIN lectures l ON l.course_id=c.id
+        WHERE l.status!='Hoàn thành' AND l.remaining_hours>0
+        AND NOT EXISTS (SELECT 1 FROM lecture_tasks t WHERE t.lecture_id=l.id)
+        UNION ALL
+        SELECT c.id,NULL,NULL,c.estimated_hours,NULL FROM active c WHERE c.estimated_hours>0
+        AND NOT EXISTS (SELECT 1 FROM lectures l WHERE l.course_id=c.id)
+    ) SELECT 1 FROM work w WHERE (w.deadline IS NULL OR w.deadline>=?) AND ABS(w.hours-COALESCE((
+        SELECT SUM(a.hours) FROM schedule_allocations a WHERE a.course_id=w.course_id
+        AND a.lecture_id IS w.lecture_id AND a.task_id IS w.task_id),0))>0.005 LIMIT 1""",
+        (current_user_id(), (today or local_today()).isoformat())).fetchone()
+    if missing:
+        replan(today or local_today(), "Khôi phục phân bổ còn thiếu của lịch học",
+               preserve_overdue=True)
         db.commit()
 
 
@@ -145,6 +167,34 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
     profiles = [dict(row) for row in db.execute(
         "SELECT * FROM user_capacity_profiles WHERE user_id=? ORDER BY effective_from",
         (user_id,))]
+    # Inherited dates are provisional positions for inserted lessons, never a
+    # fixed deadline entered by the user. Resolve their source centrally so all
+    # structural edits (not just adding the first part) use the same rule.
+    deadline_sources = {}
+    for row in db.execute("""SELECT e.lecture_id,e.kind FROM schedule_events e
+        JOIN courses c ON c.id=e.course_id WHERE c.owner_user_id=?
+        AND e.task_id IS NULL AND e.kind IN ('kế thừa hạn','đặt hạn thủ công','bỏ hạn thủ công')
+        ORDER BY e.id""", (user_id,)):
+        deadline_sources[row['lecture_id']] = row['kind']
+    inherited_empty = set()
+    for lecture in lectures:
+        if (lecture['manual_deadline'] and lecture['status'] != 'Hoàn thành'
+                and deadline_sources.get(lecture['id']) == 'kế thừa hạn'):
+            lecture['manual_deadline'] = None
+            if lecture['remaining_hours'] == 0:
+                inherited_empty.add(lecture['id'])
+            else:
+                db.execute('UPDATE lectures SET manual_deadline=NULL WHERE id=?', (lecture['id'],))
+
+    # A missed item's postponement belongs only to that item. It must not move
+    # every other plan to tomorrow, and must survive later edits on the same day.
+    postponed = {}
+    for row in db.execute("""SELECT m.* FROM missed_deadlines m JOIN lectures l ON l.id=m.lecture_id
+        JOIN courses c ON c.id=l.course_id WHERE c.owner_user_id=? ORDER BY m.id""", (user_id,)):
+        work_key = ('task', row['task_id']) if row['task_id'] is not None else ('lecture', row['lecture_id'])
+        postponed[work_key] = max(
+            (date.fromisoformat(row['old_deadline']) + timedelta(days=1)).isoformat(),
+            to_local(row['recorded_at'], '%Y-%m-%d'))
     overrides = {row["study_date"]: row["hours"] for row in db.execute(
         "SELECT study_date, hours FROM user_capacity_overrides WHERE user_id=?", (user_id,))}
     work = []
@@ -152,10 +202,15 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
         course = course_by_id[course_id]
         if course["status"] == "Hoàn thành":
             continue
+        # A historical start-date edit applies to its selected course only.
+        # Other courses still schedule from today even when sharing its plan.
+        course_start = max(start_key, course["start_date"] or start_key)
+        if recalculate_overdue_course_id is not None and course_id != recalculate_overdue_course_id:
+            course_start = max(course_start, local_today().isoformat())
         group = by_course[course["id"]]
         if not group and course["estimated_hours"] > 0:
             work.append((course["id"], None, None, course["estimated_hours"],
-                         max(start_key, course["start_date"] or start_key), None))
+                         course_start, None))
         for lecture in group:
             if lecture["status"] == "Hoàn thành" or lecture["id"] in frozen_lecture_ids:
                 continue
@@ -171,11 +226,13 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
                         barriers.append(lecture["manual_deadline"])
                     work.append((course["id"], lecture["id"], part["id"],
                                  part["remaining_hours"],
-                                 max(start_key, course["start_date"] or start_key),
+                                 max(course_start,
+                                     postponed.get(('task', part['id']), start_key)),
                                  max((value for value in barriers if value), default=None)))
             else:
                 work.append((course["id"], lecture["id"], None, lecture["remaining_hours"],
-                             max(start_key, course["start_date"] or start_key),
+                             max(course_start,
+                                 postponed.get(('lecture', lecture['id']), start_key)),
                              lecture["manual_deadline"]))
     new_deadlines = {}
     queues = defaultdict(list)
@@ -296,6 +353,8 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
             new = max(dates) if dates else None
         else:
             new = new_deadlines.get((course_id, lecture_id, None))
+        if lecture_id in inherited_empty:
+            new = old_lecture_deadlines[lecture_id]
         if lecture["manual_deadline"] and new and lecture["manual_deadline"] < new:
             raise ValueError("Hạn bài học bạn nhập sớm hơn lịch có thể xếp. Hãy tăng giờ học hoặc chọn ngày muộn hơn.")
         new = lecture["manual_deadline"] or new
@@ -333,7 +392,7 @@ def replan(start=None, reason="Điều chỉnh lịch học", preserve_overdue=F
                 WHERE study_date>=?
             UNION ALL
             SELECT course_id, manual_deadline AS deadline FROM lectures
-                WHERE status!='Hoàn thành' AND manual_deadline IS NOT NULL
+                WHERE status!='Hoàn thành' AND remaining_hours>0 AND manual_deadline IS NOT NULL
             UNION ALL
             SELECT l.course_id, t.manual_deadline AS deadline FROM lecture_tasks t
                 JOIN lectures l ON l.id=t.lecture_id

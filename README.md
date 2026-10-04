@@ -125,6 +125,19 @@ Trang Tổng quan dùng 700 giờ tổng và 36 giờ mỗi tuần làm mốc th
 
 ## Dữ liệu và sao lưu
 
+### Quy tắc lập lịch khi chỉnh sửa
+
+- Lịch chia số giờ còn lại của một phần việc qua các ngày có giờ học. Hạn tự động là ngày chứa đoạn cuối; tổng giờ các đoạn bằng số giờ còn lại.
+- Thêm, chèn, sửa giờ hoặc xóa bài/phần việc đều tính lại các việc còn lại từ hôm nay. Bài mới có 0 giờ cho đến khi thêm phần việc. Hạn kế thừa khi chèn chỉ là hạn tạm thời, không phải hạn cố định do người dùng nhập.
+- Mục quá hạn chưa có lý do được giữ tại hạn cũ và hiện trong danh sách cần xử lý. Chúng không ngăn cập nhật lịch của những việc khác. Khi ghi lý do, chỉ mục đó và các việc phụ thuộc được lùi; kế hoạch khác vẫn dùng được quỹ giờ hôm nay.
+- Việc đã hoàn thành vẫn hiện trong lịch sử. Phân bổ vào ngày hoàn thành được giữ và chỉ tính quỹ giờ một lần; ngày hoàn thành không tự đổi khi lập lại lịch.
+- Khi đổi ngày bắt đầu một khóa về quá khứ, chỉ khóa đó được tính từ ngày đã chọn. Các khóa khác không bị xếp ngược về quá khứ.
+- Ô đầu/cuối tháng thuộc tháng liền kề vẫn hiển thị công việc bình thường. Bộ lọc kế hoạch chỉ thay đổi những mục đang xem, không thay đổi cách phân bổ quỹ giờ.
+- Nếu công việc đang thực hiện bị thiếu phân bổ, mở lịch sẽ kiểm tra và khôi phục phần thiếu. Có lịch sử cũ không được coi là bằng chứng rằng mọi việc mới đã được lên lịch.
+- Khi thao tác không thể tạo lịch hợp lệ, dữ liệu sửa và lịch cùng được hoàn tác. Các thao tác xóa dọn bản ghi liên quan trực tiếp, áp dụng cả SQLite và Turso.
+
+Kiểm thử luồng chỉnh sửa và tính nhất quán nằm trong `tests/test_schedule_integrity.py`. Chạy bằng `python -m unittest discover -s tests`.
+
 File `data/journal.sqlite3` là nơi lưu dữ liệu chính. Để sao lưu, hãy dừng ứng dụng rồi sao chép file này. Các file xuất là bản chụp dữ liệu để chia sẻ, chưa có chức năng nhập lại để khôi phục. Ứng dụng chỉ lắng nghe tại `127.0.0.1` và dành cho sử dụng cá nhân trên máy. Lệnh `python run.py` bật chế độ gỡ lỗi của Flask khi phát triển; không đưa máy chủ này ra mạng công cộng.
 
 Khi mở phiên bản mới trên cơ sở dữ liệu cũ, ứng dụng tự thêm các bảng và trường cần thiết. Lần đầu thêm tính năng nhiều kế hoạch, mọi khóa hiện có được đưa vào kế hoạch mặc định **Lộ trình Quant** để giữ lịch cũ. Các khóa học mẫu chưa có bài được gán số giờ ước tính ban đầu: MIT 18.02 (120), MIT 18.06 (100), MIT 6.041 (140), Finance MicroMasters (220). Bạn có thể sửa các ước tính này trong từng khóa. Nội dung do bạn tự nhập được giữ nguyên.
