@@ -218,6 +218,60 @@ class ManualCompletionTest(unittest.TestCase):
                 self.assertAlmostEqual(db.execute("""SELECT SUM(hours)
                     FROM schedule_allocations WHERE task_id=?""", (task,)).fetchone()[0], 1.5)
 
+    def test_first_task_releases_an_inherited_deadline_for_automatic_scheduling(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = create_app({"TESTING": True,
+                              "DATABASE": str(Path(directory) / "journal.sqlite3")})
+            with app.app_context():
+                db = get_db()
+                db.execute("INSERT INTO courses (name) VALUES ('Khóa có bài ôn tập')")
+                db.execute("INSERT INTO plan_courses (plan_id, course_id, position) VALUES (1, 1, 1)")
+                old_lecture = db.execute("""INSERT INTO lectures
+                    (course_id, lecture_number, title, estimated_hours, remaining_hours)
+                    VALUES (1, 1, 'Bài cũ', 1, 1)""").lastrowid
+                db.execute("""INSERT INTO lecture_tasks
+                    (lecture_id, position, kind, title, estimated_hours, remaining_hours)
+                    VALUES (?, 1, 'video', 'Xem bài cũ', 1, 1)""", (old_lecture,))
+                db.execute("""UPDATE user_capacity_profiles
+                    SET hours_json='[1,1,1,1,1,1,1]' WHERE user_id=1""")
+                db.commit()
+
+            client = app.test_client()
+            client.get("/schedule")
+            with app.app_context():
+                inherited = get_db().execute(
+                    "SELECT deadline FROM lectures WHERE id=?", (old_lecture,)).fetchone()[0]
+
+            client.post("/courses/1/lectures", data={
+                "insert_before": "1", "lecture_number": "99", "title": "Bài ôn tập",
+            })
+            with app.app_context():
+                inserted = get_db().execute(
+                    "SELECT id, deadline, manual_deadline FROM lectures WHERE lecture_number=1"
+                ).fetchone()
+                self.assertEqual((inserted["deadline"], inserted["manual_deadline"]),
+                                 (inherited, inherited))
+                inserted_id = inserted["id"]
+
+            response = client.post(f"/lectures/{inserted_id}/tasks", data={
+                "kind": "exercises", "title": "Làm bài ôn tập",
+                "content": "Ôn lại phần còn yếu", "estimated_hours": "2",
+            }, follow_redirects=True)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn("Đã thêm phần việc", response.get_data(as_text=True))
+            with app.app_context():
+                db = get_db()
+                lecture = db.execute("""SELECT deadline, manual_deadline,
+                    estimated_hours, remaining_hours FROM lectures WHERE id=?""",
+                                     (inserted_id,)).fetchone()
+                task = db.execute("""SELECT deadline, estimated_hours
+                    FROM lecture_tasks WHERE lecture_id=?""", (inserted_id,)).fetchone()
+                self.assertIsNone(lecture["manual_deadline"])
+                self.assertGreater(lecture["deadline"], inherited)
+                self.assertEqual((lecture["estimated_hours"], lecture["remaining_hours"]), (2, 2))
+                self.assertEqual((task["deadline"], task["estimated_hours"]),
+                                 (lecture["deadline"], 2))
+
     def test_tasks_can_be_added_manually_inside_each_lesson(self):
         with tempfile.TemporaryDirectory() as directory:
             app = create_app({"TESTING": True,

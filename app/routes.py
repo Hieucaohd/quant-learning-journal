@@ -938,6 +938,19 @@ def add_task(lecture_id):
             "SELECT COALESCE(MAX(position), 0) + 1 FROM lecture_tasks WHERE lecture_id=?",
             (lecture_id,)).fetchone()[0]
         inherited_deadline = lecture["deadline"] if existing_count == 0 else None
+        if existing_count == 0 and lecture["manual_deadline"]:
+            latest_deadline_source = db.execute("""SELECT kind FROM schedule_events
+                WHERE lecture_id=? AND task_id IS NULL
+                AND kind IN ('kế thừa hạn', 'đặt hạn thủ công')
+                ORDER BY id DESC LIMIT 1""", (lecture_id,)).fetchone()
+            if (latest_deadline_source
+                    and latest_deadline_source["kind"] == "kế thừa hạn"):
+                # An inserted zero-hour lesson temporarily inherits the displaced
+                # lesson's deadline so it has a visible position in the course.
+                # Once real work is added, that inherited date must become
+                # automatic again; otherwise it acts like a user-fixed barrier.
+                db.execute("UPDATE lectures SET manual_deadline=NULL WHERE id=?",
+                           (lecture_id,))
         task_id = db.execute("""INSERT INTO lecture_tasks
             (lecture_id, position, kind, title, content, estimated_hours,
              remaining_hours, deadline)
