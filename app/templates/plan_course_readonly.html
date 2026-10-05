@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}{{ course.display_name or course.name }} · {{ plan.name }}{% endblock %}
+{% block content %}
+<div class="page-heading"><div>
+  <a class="back-link" href="{{ url_for('main.shared_plan', plan_id=plan.id) }}">← Kế hoạch: {{ plan.name }}</a>
+  <p class="eyebrow">CHỈ XEM · @{{ plan.owner_name }}</p>
+  <h1>{{ course.display_name or course.name }}</h1>
+  <p class="muted">{{ course.description }}</p>
+</div></div>
+<section class="card"><h2>Bài học và phần việc</h2><div class="lecture-list">
+{% for lecture in lectures %}
+  <details id="lecture-{{ lecture.id }}" class="lecture">
+    <summary><span>Bài {{ lecture.lecture_number }} · {{ lecture.title }}</span><span class="pill">{{ lecture.status }}</span></summary>
+    <p>{{ lecture.content }}</p>
+    <p class="muted small">Hạn dự kiến: {{ lecture.deadline or 'Chưa lập lịch' }}{% if lecture.completed_at %} · Hoàn thành: {{ lecture.completed_at }}{% endif %}</p>
+    <div class="lecture-parts">
+    {% for part in parts_by_lecture.get(lecture.id, []) %}
+      <details id="task-{{ part.id }}" class="lecture part">
+        <summary><span>{{ loop.index }}. {{ task_types[part.kind] }} · {{ part.title }}</span><span class="pill">{{ part.status }}</span></summary>
+        <p>{{ part.content or 'Chưa có mô tả chi tiết.' }}</p>
+        <p class="muted small">Còn {{ '%g'|format(part.remaining_hours) }} / {{ '%g'|format(part.estimated_hours) }} giờ · Hạn: {{ part.deadline or 'Chưa lập lịch' }}{% if part.completed_at %} · Hoàn thành: {{ part.completed_at }}{% endif %}</p>
+      </details>
+    {% endfor %}
+    </div>
+  </details>
+{% else %}<p class="empty">Chưa có bài học.</p>{% endfor %}
+</div></section>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='work_links.js') }}" defer></script>{% endblock %}

@@ -317,12 +317,14 @@ def schedule():
     selected_ids = list(dict.fromkeys(selected_ids))
     selected_course_ids = set()
     plan_labels = {}
+    course_plan_ids = {}
     if selected_ids:
         placeholders = ",".join("?" for _ in selected_ids)
         for row in db.execute(f"""SELECT pc.course_id, p.id FROM plan_courses pc
             JOIN study_plans p ON p.id=pc.plan_id WHERE p.status='Đang hoạt động'
             AND p.id IN ({placeholders}) ORDER BY p.priority, p.id""", selected_ids):
             selected_course_ids.add(row["course_id"])
+            course_plan_ids.setdefault(row["course_id"], row["id"])
             plan_labels.setdefault(row["course_id"], []).append(plan_by_id[row["id"]]["label"])
     own_course_ids = {row["id"] for row in db.execute(
         "SELECT id FROM courses WHERE owner_user_id=?", (user_id,))}
@@ -425,7 +427,8 @@ def schedule():
                            events=events, capacity_events=capacity_events,
                            active_hours=json.loads(active_profile["hours_json"]),
                            task_types=TASK_TYPES, plans=plans,
-                           selected_ids=selected_ids, plan_labels=plan_labels)
+                           selected_ids=selected_ids, plan_labels=plan_labels,
+                           course_plan_ids=course_plan_ids)
 
 
 @bp.post("/schedule/capacity")
@@ -797,8 +800,7 @@ def remove_plan_share(plan_id, user_id):
     return redirect(url_for("main.plan_detail", plan_id=plan_id))
 
 
-@bp.get("/shared/plans/<int:plan_id>")
-def shared_plan(plan_id):
+def viewable_plan(plan_id):
     db = get_db()
     plan = db.execute("""SELECT p.*, u.username AS owner_name FROM study_plans p
         JOIN users u ON u.id=p.owner_user_id WHERE p.id=?""", (plan_id,)).fetchone()
@@ -809,12 +811,42 @@ def shared_plan(plan_id):
                           (plan_id, current_user_id())).fetchone())
     if not allowed:
         abort(403)
+    return plan
+
+
+@bp.get("/shared/plans/<int:plan_id>")
+def shared_plan(plan_id):
+    db = get_db()
+    plan = viewable_plan(plan_id)
     progress = {course["id"]: course
                 for course in courses_with_progress(plan["owner_user_id"])}
     members = [progress[row["course_id"]] for row in db.execute(
         "SELECT course_id FROM plan_courses WHERE plan_id=? ORDER BY position, course_id",
         (plan_id,)) if row["course_id"] in progress]
     return render_template("shared_plan.html", plan=plan, members=members)
+
+
+@bp.get("/plans/<int:plan_id>/courses/<int:course_id>")
+def plan_course_detail(plan_id, course_id):
+    db = get_db()
+    plan = viewable_plan(plan_id)
+    course = db.execute("""SELECT c.* FROM courses c JOIN plan_courses pc
+        ON pc.course_id=c.id WHERE pc.plan_id=? AND c.id=? AND c.owner_user_id=?""",
+        (plan_id, course_id, plan["owner_user_id"])).fetchone()
+    if course is None:
+        abort(404)
+    if plan["owner_user_id"] == current_user_id():
+        return course_detail(course_id, plan_context=plan)
+    lectures = db.execute("SELECT * FROM lectures WHERE course_id=? ORDER BY lecture_number",
+                          (course_id,)).fetchall()
+    parts_by_lecture = {}
+    for part in db.execute("""SELECT t.* FROM lecture_tasks t JOIN lectures l
+        ON l.id=t.lecture_id WHERE l.course_id=? ORDER BY l.lecture_number, t.position, t.id""",
+        (course_id,)):
+        parts_by_lecture.setdefault(part["lecture_id"], []).append(part)
+    return render_template("plan_course_readonly.html", plan=plan, course=course,
+                           lectures=lectures, parts_by_lecture=parts_by_lecture,
+                           task_types=TASK_TYPES)
 
 
 @bp.post("/plans/<int:plan_id>/courses")
@@ -1153,9 +1185,13 @@ def enroll_course(catalog_id):
 
 
 @bp.route("/courses/<int:course_id>", methods=["GET", "POST"])
-def course_detail(course_id):
+def course_detail(course_id, plan_context=None):
     db = get_db()
     course = required_row("courses", course_id)
+    if plan_context is None and request.headers.get("X-Plan-Id"):
+        plan_context = db.execute("""SELECT p.* FROM study_plans p JOIN plan_courses pc
+            ON pc.plan_id=p.id WHERE p.id=? AND pc.course_id=? AND p.owner_user_id=?""",
+            (request.headers["X-Plan-Id"], course_id, current_user_id())).fetchone()
     if request.method == "POST":
         try:
             name = request.form["name"].strip()
@@ -1200,6 +1236,7 @@ def course_detail(course_id):
         parts_by_lecture.setdefault(part["lecture_id"], []).append(part)
     course_summary = next(item for item in courses_with_progress() if item["id"] == course_id)
     return render_template("course_detail.html", course=course_summary, lectures=lectures,
+                           plan_context=plan_context,
                            display_progress=course_summary["display_progress"], statuses=STATUSES,
                            parts_by_lecture=parts_by_lecture, task_types=TASK_TYPES,
                            today=local_today().isoformat(),

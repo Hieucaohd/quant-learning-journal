@@ -18,3 +18,7 @@
 .auth-card { margin-top: 4rem; }
 .user-row{border-bottom:1px solid #e9eee8;padding:18px 0}.user-row:first-child{padding-top:0}.user-row:last-child{border:0;padding-bottom:0}.user-row-head{display:flex;justify-content:space-between;align-items:center;gap:15px}.user-row-head small{display:block;color:#8a968c;margin-top:3px}.user-row-head b{color:#315b46}.user-row-actions{display:flex;flex-wrap:wrap;gap:8px 12px;margin-top:12px}.user-row .inline-form{display:flex;gap:6px;margin:0;flex:1 1 220px}.user-row .inline-form input{flex:1;min-width:0;border:1px solid #d7dfd6;border-radius:6px;padding:8px 10px;font:inherit;font-size:13px}.danger-zone{margin-top:10px}.danger-zone summary{cursor:pointer;color:#a33d3d;font-size:12px;font-weight:650}.danger-zone p{margin:8px 0}.danger-zone .button-danger{margin-top:0}
 .button-row{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}.button-row form{margin:0}.form-grid fieldset{border:1px solid #e3e8e1;border-radius:7px;padding:14px;display:grid;gap:10px}.form-grid fieldset legend{font-size:13px;font-weight:700;color:#4b5f51;padding:0 5px}.form-grid label.checkbox{display:flex;align-items:center;gap:8px;font-weight:550}.form-grid label.checkbox input[type=checkbox]{width:auto;flex:0 0 auto}
+
+/* Keep the linked work visible when opening its enclosing lesson. */
+.lecture[id] { scroll-margin-top: 1rem; }
+.lecture:target { outline: 2px solid #548567; outline-offset: 4px; }

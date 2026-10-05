@@ -49,7 +49,10 @@
         method: "POST",
         body,
         credentials: "same-origin",
-        headers: { "X-Requested-With": "XMLHttpRequest" },
+        headers: {
+          "X-Requested-With": "XMLHttpRequest",
+          "X-Plan-Id": main.querySelector("#course-detail").dataset.planId || "",
+        },
       });
       if (!response.ok) throw new Error(`Máy chủ trả về mã ${response.status}`);
       if (new URL(response.url).pathname !== coursePath) {

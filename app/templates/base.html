@@ -16,7 +16,7 @@
       {% if g.user %}<nav aria-label="Điều hướng chính">
         <a href="{{ url_for('main.dashboard') }}" {% if request.endpoint == 'main.dashboard' %}aria-current="page"{% endif %}>Tổng quan</a>
         <a href="{{ url_for('main.schedule') }}" {% if request.endpoint == 'main.schedule' %}aria-current="page"{% endif %}>Lịch</a>
-        <a href="{{ url_for('main.plans') }}" {% if request.endpoint in ('main.plans', 'main.plan_detail') %}aria-current="page"{% endif %}>Kế hoạch</a>
+        <a href="{{ url_for('main.plans') }}" {% if request.endpoint in ('main.plans', 'main.plan_detail', 'main.plan_course_detail') %}aria-current="page"{% endif %}>Kế hoạch</a>
         <a href="{{ url_for('main.courses') }}" {% if request.endpoint in ('main.courses', 'main.course_detail') %}aria-current="page"{% endif %}>Khóa học</a>
         <a href="{{ url_for('main.import_plan') }}" {% if request.endpoint == 'main.import_plan' %}aria-current="page"{% endif %}>Nhập kế hoạch</a>
         <a href="{{ url_for('main.journal') }}" {% if request.endpoint in ('main.journal', 'main.journal_edit') %}aria-current="page"{% endif %}>Nhật ký</a>
