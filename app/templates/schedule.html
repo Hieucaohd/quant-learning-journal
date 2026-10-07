@@ -28,7 +28,7 @@
       <p class="eyebrow">{% if item.is_shared %}<span class="owner-badge">@{{ item.owner_name }} · chỉ xem</span> {% endif %}{{ item.course_name }} · {{ '%g'|format(item.hours) }} giờ</p><p class="muted small">Kế hoạch: {{ plan_labels.get(item.course_id, [])|join(', ') }}</p>
       {% if item.task_id %}
         <h3>{{ task_types[item.part_kind] }}: {{ item.part_title }}</h3>
-        <p class="small"><a href="{{ url_for('main.plan_course_detail', plan_id=course_plan_ids[item.course_id], course_id=item.course_id, _anchor='task-' ~ item.task_id) }}">Mở phần việc trong kế hoạch →</a></p>
+        <p><a class="button button-dark" href="{{ url_for('main.plan_course_detail', plan_id=course_plan_ids[item.course_id], course_id=item.course_id, _anchor='task-' ~ item.task_id) }}">Mở phần việc trong kế hoạch →</a></p>
         <p class="task-lesson"><span>Bài học tương ứng:</span> Bài {{ item.lecture_number }} · {{ item.title or 'Chưa đặt tiêu đề' }}</p>
         <p>{{ item.part_content or item.content or 'Chưa có mô tả chi tiết.' }}</p>
         <div class="allocation-split"><strong>Phần học trong ngày: {{ '%g'|format(item.hours) }}/{{ '%g'|format(item.scheduled_total_hours) }} giờ</strong>{% if item.segment_count > 1 %}<span>Phần {{ item.segment_index }}/{{ item.segment_count }}</span>{% endif %}</div>
