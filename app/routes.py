@@ -13,6 +13,7 @@ from flask import (Blueprint, abort, current_app, flash, g, redirect, render_tem
 
 from .ai_kit import ai_kit_files, ai_prompt, course_replan_kit_files
 from .auth import current_user_id
+from . import habits
 from .course_transfer import (apply_course_overwrite, inspect_course_overwrite,
                               parse_course_snapshot, snapshot_json)
 from .db import enroll_catalog_course, get_db, sync_lecture_hours
@@ -25,6 +26,7 @@ from .plan_import import TASK_TYPES, apply_plan, inspect_plan, parse_plan
 
 
 bp = Blueprint("main", __name__)
+habits.register_routes(bp)
 STATUSES = ("Chưa bắt đầu", "Đang học", "Hoàn thành", "Cần ôn tập")
 DIFFICULTIES = ("Dễ", "Trung bình", "Khó")
 
@@ -272,7 +274,13 @@ def dashboard():
     missing = [c for c in courses if c["status"] != "Hoàn thành" and c["id"] not in projections]
     remaining_dates = [projections[c["id"]] for c in courses
                        if c["status"] != "Hoàn thành" and c["id"] in projections]
+    habit_plan_ids = [p["id"] for p in data["study_plans"]
+                      if p["kind"] == "habit" and p["status"] == "Đang hoạt động"]
+    today_habits = habits.occurrences(habit_plan_ids, today, today)
+    habit_week = habits.summary(habits.occurrences(habit_plan_ids, week_days[0], week_days[-1]))
     return render_template("dashboard.html", current=current, courses=courses,
+                           today_habits=today_habits, habit_week=habit_week,
+                           habit_statuses=habits.STATUSES,
                            recent=list(reversed(journals[-7:])),
                            planned_hours=planned_hours, done_hours=done_hours,
                            done_percent=round(100 * done_hours / planned_hours) if planned_hours else 0,
@@ -411,7 +419,14 @@ def schedule():
                if item["course_id"] in selected_course_ids]
     today_tasks = day_plan(today, selected_ids)
     day_tasks = day_plan(selected, selected_ids, include_others=True)
+    calendar_habits = habits.occurrences(selected_ids, calendar_weeks[0][0],
+                                         calendar_weeks[-1][-1], active_only=True)
+    habit_days = {}
+    for item in calendar_habits:
+        habit_days.setdefault(item["date"], []).append(item)
     return render_template("schedule.html", selected=selected, today=today,
+                           habit_days=habit_days, day_habits=habit_days.get(selected.isoformat(), []),
+                           habit_statuses=habits.STATUSES,
                            month_start=month_start, calendar_weeks=calendar_weeks,
                            prev_month=month_start-timedelta(days=1),
                            next_month=month_end+timedelta(days=1),
@@ -658,7 +673,7 @@ def import_plan():
             flash(str(exc), "error")
             preview = None
     active_plans = get_db().execute("""SELECT id, name FROM study_plans
-        WHERE owner_user_id=? AND status='Đang hoạt động' ORDER BY priority, id""",
+        WHERE owner_user_id=? AND status='Đang hoạt động' AND kind='study' ORDER BY priority, id""",
                                     (current_user_id(),)).fetchall()
     return render_template("import_plan.html", preview=preview, raw=raw,
                            source_name=source_name, task_types=TASK_TYPES,
@@ -712,23 +727,30 @@ def plans():
             name = request.form.get("name", "").strip()
             if not name:
                 raise ValueError("Vui lòng nhập tên kế hoạch")
+            kind = request.form.get("kind", "study")
+            if kind not in ("study", "habit"):
+                raise ValueError("Loại kế hoạch không hợp lệ")
             priority = int(request.form.get("priority", "100"))
             if not 1 <= priority <= 1000:
                 raise ValueError("Độ ưu tiên phải từ 1 đến 1000")
-            db.execute("""INSERT INTO study_plans (name, description, priority, owner_user_id)
-                VALUES (?, ?, ?, ?)""", (name, request.form.get("description", "").strip(),
-                                           priority, user_id))
+            plan_id = db.execute("""INSERT INTO study_plans (name, description, priority, owner_user_id, kind)
+                VALUES (?, ?, ?, ?, ?)""", (name, request.form.get("description", "").strip(),
+                                            priority, user_id, kind)).lastrowid
             db.commit()
-            flash("Đã tạo kế hoạch học.", "success")
+            flash("Đã tạo kế hoạch.", "success")
+            if kind == "habit":
+                return redirect(url_for("main.plan_detail", plan_id=plan_id))
             return redirect(url_for("main.plans"))
         except (ValueError, sqlite3.IntegrityError) as exc:
             db.rollback()
             flash("Tên kế hoạch đã tồn tại hoặc thông tin không hợp lệ." if isinstance(
                 exc, sqlite3.IntegrityError) else str(exc), "error")
-    rows = [dict(row) for row in db.execute("""SELECT p.*, COUNT(pc.course_id) AS course_count
+    rows = [dict(row) for row in db.execute("""SELECT p.*, COUNT(pc.course_id) AS course_count,
+        (SELECT COUNT(*) FROM habits h WHERE h.plan_id=p.id) AS habit_count
         FROM study_plans p LEFT JOIN plan_courses pc ON pc.plan_id=p.id
         WHERE p.owner_user_id=? GROUP BY p.id ORDER BY p.priority, p.id""", (user_id,))]
     shared = db.execute("""SELECT p.*, u.username AS owner_name,
+        (SELECT COUNT(*) FROM habits h WHERE h.plan_id=p.id) AS habit_count,
         (SELECT COUNT(*) FROM plan_courses pc WHERE pc.plan_id=p.id) AS course_count
         FROM plan_shares ps JOIN study_plans p ON p.id=ps.plan_id
         JOIN users u ON u.id=p.owner_user_id WHERE ps.user_id=?
@@ -750,14 +772,17 @@ def plan_detail(plan_id):
             db.execute("""UPDATE study_plans SET name=?, description=?, status=?, priority=?
                 WHERE id=?""", (name, request.form.get("description", "").strip(),
                                  status, priority, plan_id))
-            refresh_schedule(f"Cập nhật kế hoạch {name}")
+            if plan["kind"] == "study":
+                refresh_schedule(f"Cập nhật kế hoạch {name}")
             db.commit()
-            flash("Đã cập nhật kế hoạch và lịch học.", "success")
+            flash("Đã cập nhật kế hoạch.", "success")
             return redirect(url_for("main.plan_detail", plan_id=plan_id))
         except (ValueError, sqlite3.IntegrityError) as exc:
             db.rollback()
             flash("Tên kế hoạch đã tồn tại." if isinstance(exc, sqlite3.IntegrityError)
                   else str(exc), "error")
+    if plan["kind"] == "habit":
+        return habits.render_plan(plan)
     members = [dict(row) for row in db.execute("""SELECT c.*, pc.position FROM plan_courses pc
         JOIN courses c ON c.id=pc.course_id WHERE pc.plan_id=? ORDER BY pc.position, c.id""",
         (plan_id,))]
@@ -818,6 +843,8 @@ def viewable_plan(plan_id):
 def shared_plan(plan_id):
     db = get_db()
     plan = viewable_plan(plan_id)
+    if plan["kind"] == "habit":
+        return habits.render_plan(plan, readonly=plan["owner_user_id"] != current_user_id())
     progress = {course["id"]: course
                 for course in courses_with_progress(plan["owner_user_id"])}
     members = [progress[row["course_id"]] for row in db.execute(
@@ -852,7 +879,9 @@ def plan_course_detail(plan_id, course_id):
 @bp.post("/plans/<int:plan_id>/courses")
 def add_course_to_plan(plan_id):
     db = get_db()
-    required_row("study_plans", plan_id)
+    plan = required_row("study_plans", plan_id)
+    if plan["kind"] != "study":
+        abort(400)
     try:
         course_id = int(request.form["course_id"])
         required_row("courses", course_id)
@@ -893,10 +922,14 @@ def delete_plan(plan_id):
         flash("Tên xác nhận chưa khớp. Kế hoạch chưa bị xóa.", "error")
         return redirect(url_for("main.plan_detail", plan_id=plan_id))
     try:
+        db.execute("DELETE FROM habit_entries WHERE habit_id IN (SELECT id FROM habits WHERE plan_id=?)",
+                   (plan_id,))
+        db.execute("DELETE FROM habits WHERE plan_id=?", (plan_id,))
         db.execute("DELETE FROM plan_shares WHERE plan_id=?", (plan_id,))
         db.execute("DELETE FROM plan_courses WHERE plan_id=?", (plan_id,))
         db.execute("DELETE FROM study_plans WHERE id=?", (plan_id,))
-        refresh_schedule(f"Xóa kế hoạch {plan['name']}")
+        if plan["kind"] == "study":
+            refresh_schedule(f"Xóa kế hoạch {plan['name']}")
         db.commit()
         flash("Đã xóa kế hoạch. Các khóa học vẫn còn trong danh mục.", "success")
         return redirect(url_for("main.plans"))

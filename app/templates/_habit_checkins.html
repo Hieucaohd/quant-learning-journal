@@ -1,0 +1,20 @@
+{% for item in day_habits %}
+<article class="habit-checkin" id="habit-{{ item.id }}">
+  <div class="section-heading"><div><strong>{{ item.title }}</strong><p class="muted small">{{ item.plan_name }}{% if item.owner_user_id != g.user.id %} · @{{ item.owner_name }} · chỉ xem{% endif %}</p></div><span class="pill habit-{{ item.status }}">{{ habit_statuses[item.status] }}</span></div>
+  {% if item.description %}<p class="habit-note">{{ item.description }}</p>{% endif %}
+  {% if item.editable and not readonly|default(false) %}
+  <form method="post" action="{{ url_for('main.record_habit', habit_id=item.id) }}" class="form-grid habit-checkin-form">
+    <input type="hidden" name="date" value="{{ item.date }}">
+    {% if habit_return|default('plan') == 'schedule' %}<input type="hidden" name="return_to" value="schedule"><input type="hidden" name="filter" value="1">{% for plan_id in selected_ids %}<input type="hidden" name="plan_id" value="{{ plan_id }}">{% endfor %}{% endif %}
+    <label>Ghi chú cho {{ item.title }} <input name="note" maxlength="2000" value="{{ item.note }}" placeholder="Ví dụ: tập 20 phút hoặc nghỉ phục hồi"></label>
+    <div class="habit-actions" aria-label="Kết quả của {{ item.title }} ngày {{ item.date }}">
+      {% for code, label in habit_statuses.items() %}{% if code != 'pending' %}<button class="button{% if item.status == code %} button-dark{% endif %}" type="submit" name="status" value="{{ code }}" aria-pressed="{{ 'true' if item.status == code else 'false' }}">{% if code == 'done' %}✓ {% endif %}{{ label }}</button>{% endif %}{% endfor %}
+      {% if item.status != 'pending' %}<button class="button" type="submit" name="status" value="pending">Bỏ đánh dấu</button>{% endif %}
+    </div>
+  </form>
+  {% else %}
+    {% if item.note %}<p class="habit-note">{{ item.note }}</p>{% endif %}
+    {% if item.future %}<p class="muted small">Bạn có thể ghi nhận kết quả khi đến ngày này.</p>{% endif %}
+  {% endif %}
+</article>
+{% endfor %}

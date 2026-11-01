@@ -122,7 +122,13 @@ def report_data():
     plan_courses = [dict(row) for row in db.execute(
         """SELECT pc.* FROM plan_courses pc JOIN study_plans p ON p.id=pc.plan_id
         WHERE p.owner_user_id=? ORDER BY pc.plan_id, pc.position""", (user_id,))]
+    habits = [dict(row) for row in db.execute("""SELECT h.* FROM habits h
+        JOIN study_plans p ON p.id=h.plan_id WHERE p.owner_user_id=? ORDER BY h.id""", (user_id,))]
+    habit_entries = [dict(row) for row in db.execute("""SELECT e.* FROM habit_entries e
+        JOIN habits h ON h.id=e.habit_id JOIN study_plans p ON p.id=h.plan_id
+        WHERE p.owner_user_id=? ORDER BY e.entry_date,e.habit_id""", (user_id,))]
     return {"courses": courses, "lectures": lectures, "lecture_tasks": tasks,
+            "habits": habits, "habit_entries": habit_entries,
             "journals": journals, "plan_imports": imports,
             "study_plans": plans, "plan_courses": plan_courses,
             "reviews": reviews, "schedule_allocations": allocations,
@@ -181,6 +187,11 @@ def build_export(export_dir):
                        f"({course['status']})")
     summary += ["", "## Kế hoạch học", ""]
     for plan in data["study_plans"]:
+        if plan["kind"] == "habit":
+            names = [h["title"] for h in data["habits"] if h["plan_id"] == plan["id"]]
+            summary.append(f"- {plan['name']} ({plan['status']}, theo dõi thói quen): "
+                           + (", ".join(names) or "chưa có việc theo dõi"))
+            continue
         names = [next(c["name"] for c in courses if c["id"] == member["course_id"])
                  for member in data["plan_courses"] if member["plan_id"] == plan["id"]]
         summary.append(f"- {plan['name']} ({plan['status']}): {', '.join(names) or 'chưa có khóa học'}")
@@ -247,6 +258,16 @@ def build_export(export_dir):
                         f"{', phần việc ID ' + str(row['task_id']) if row['task_id'] else ''}: "
                         f"{row['old_deadline'] or '—'} → {row['new_deadline'] or '—'}; {row['reason']}")
     if not data["schedule_events"]:
+        progress.append("- Chưa ghi nhận")
+
+    progress += ["", "## Kết quả theo dõi thói quen", ""]
+    from .habits import STATUSES as HABIT_STATUSES
+    habit_names = {h["id"]: h["title"] for h in data["habits"]}
+    for entry in data["habit_entries"]:
+        progress.append(f"- {entry['entry_date']} · {habit_names[entry['habit_id']]}: "
+                        f"{HABIT_STATUSES[entry['status']]}"
+                        + (f" · {entry['note']}" if entry["note"] else ""))
+    if not data["habit_entries"]:
         progress.append("- Chưa ghi nhận")
 
     path = Path(export_dir)

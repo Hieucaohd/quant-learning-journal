@@ -54,6 +54,28 @@ pip install -r requirements-build.txt
    - `progress_report.md` — tiến độ bài học, các buổi học gần đây và phần nhìn lại
    - `learning_data.json` — toàn bộ dữ liệu khóa học, bài học, nhật ký và phần nhìn lại
 
+## Theo dõi thói quen không cần số giờ
+
+Tại **Kế hoạch → Tạo kế hoạch**, chọn **Theo dõi thói quen** để theo dõi tập thể dục,
+đọc sách, thiền hoặc các việc lặp lại. Kế hoạch học tập hiện có tiếp tục hoạt động như cũ.
+
+- Thêm việc, chọn các thứ trong tuần, ngày bắt đầu và ngày kết thúc nếu có. Không cần nhập giờ.
+- Mở ngày cần theo dõi ở trang kế hoạch hoặc **Lịch**, chọn **Đã làm**, **Không làm**,
+  hoặc **Nghỉ / bỏ qua**, kèm ghi chú tùy chọn. Có thể sửa ngày đã qua hoặc bỏ đánh dấu;
+  không thể ghi nhận trước cho ngày tương lai.
+- **Chưa đánh dấu** được giữ riêng với **Không làm**. Các ngày không có lịch và buổi chọn nghỉ
+  không tính vào tổng cần thực hiện. Thống kê tuần/tháng tính đến hôm nay, không tính buổi tương lai.
+- Lịch sử tuần và chuỗi buổi hoàn thành nằm trên trang kế hoạch. Chuỗi bỏ qua ngày không có lịch
+  và buổi nghỉ; buổi đã qua chưa đánh dấu hoặc không làm sẽ ngắt chuỗi.
+- Để đổi lịch lặp, đặt ngày kết thúc cho việc cũ và tạo việc mới từ ngày áp dụng; lịch sử cũ được giữ.
+  Tạm dừng kế hoạch sẽ ẩn các buổi chưa ghi nhận trên lịch chung; trang kế hoạch vẫn cho xem
+  và bổ sung lịch sử theo lịch lặp đã cấu hình.
+- Có thể chia sẻ kế hoạch ở chế độ chỉ xem. Kết quả được đưa vào JSON và báo cáo Markdown khi xuất dữ liệu.
+- Thói quen không sử dụng quỹ giờ học và không làm thay đổi phân bổ hay hạn của khóa học.
+
+Schema v4 bổ sung loại kế hoạch và hai bảng `habits`, `habit_entries`. Nâng cấp từ v3 chỉ thêm
+cấu trúc mới; xem [hướng dẫn migration](DEPLOY_VERCEL.md#nâng-cấp-schema-database) khi dùng Turso.
+
 ## Lịch học và hạn hoàn thành
 
 - Mở **Lịch học** để xem lịch tháng, bấm một ngày để xem khóa học, bài học, nội dung và số giờ cần học trong ngày đó. Bộ lọc cho phép xem một kế hoạch hoặc nhiều kế hoạch cùng lúc. Lịch ghi rõ kế hoạch của từng việc và dự báo ngày kết thúc cho các khóa trong bộ lọc.

@@ -26,6 +26,8 @@ TABLES = (
     "capacity_overrides",
     "lecture_tasks",
     "study_plans",
+    "habits",
+    "habit_entries",
     "plan_courses",
     "schedule_allocations",
     "schedule_events",

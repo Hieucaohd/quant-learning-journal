@@ -8,6 +8,11 @@
   <section class="card stat"><span class="label">Tuần này</span><strong>{{ '%g'|format(week.hours) }} <small>giờ</small></strong><span class="muted">{{ week['items']|length }} việc hoàn thành · quỹ thời gian tuần này {{ '%g'|format(week_capacity) }} giờ</span></section>
 </div>
 <div class="two-col">
+{% if today_habits %}
+  <section class="card"><h2>Thói quen hôm nay</h2><p class="muted small">Tuần này: {{ habit_week.done }}/{{ habit_week.total }} buổi đến hạn đã hoàn thành · {{ habit_week.skipped }} buổi nghỉ.</p>
+    {% for item in today_habits %}<a class="course-item" href="{{ url_for('main.plan_detail', plan_id=item.plan_id, date=item.date, _anchor='habit-' ~ item.id) }}"><span><strong>{{ item.title }}</strong><small>{{ item.plan_name }}</small></span><span class="pill habit-{{ item.status }}">{{ habit_statuses[item.status] }}</span></a>{% endfor %}
+  </section>
+{% endif %}
   <section class="card">
     <div class="section-heading"><h2>Khóa học hiện tại</h2><a href="{{ url_for('main.courses') }}">Tất cả khóa học →</a></div>
     {% if current %}

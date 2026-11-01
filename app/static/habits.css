@@ -1,0 +1,30 @@
+.form-grid [hidden] { display: none; }
+.habit-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.habit-layout > .stack { min-width: 0; }
+.habit-checkin { padding: 18px 0; border-bottom: 1px solid #e3e8e1; }
+.habit-checkin:last-child { border-bottom: 0; }
+.habit-checkin .section-heading { gap: 12px; margin-bottom: 8px; }
+.habit-checkin .section-heading p { margin: 4px 0 0; }
+.habit-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.habit-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.habit-checkin details > summary { cursor: pointer; color: #315c42; margin-bottom: 12px; }
+.habit-weekdays { border: 1px solid #d7dfd6; border-radius: 6px; display: flex; gap: 10px 14px; flex-wrap: wrap; padding: 12px; }
+.habit-weekdays label { display: flex; align-items: center; gap: 6px; }
+.habit-weekdays input { width: auto; accent-color: #315c42; }
+.habit-date-nav { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-bottom: 20px; }
+.habit-date-nav label { display: grid; gap: 6px; }
+.habit-date-nav input { font: inherit; border: 1px solid #d7dfd6; border-radius: 6px; padding: 9px; }
+.habit-cell { display: inline-flex; min-width: 36px; min-height: 36px; align-items: center; justify-content: center; border-radius: 6px; font-weight: 700; }
+.habit-done { background: #e5f2e7; color: #285537; }
+.habit-missed { background: #fff0ed; color: #a13d34; }
+.habit-skipped { background: #e6effa; color: #3c6799; }
+.habit-pending { background: #eef0ed; color: #69766d; }
+.habit-week td { text-align: center; }
+.habit-week th { white-space: nowrap; }
+.calendar-habits { display: block; color: #6b4f91; font-size: 11px; margin-top: 5px; }
+.habit-checkin-form { margin-top: 12px; }
+.habit-checkin .button { white-space: normal; }
+@media (max-width: 540px) {
+  .habit-stats { grid-template-columns: 1fr; }
+  .habit-checkin .section-heading { align-items: start; flex-direction: column; }
+}

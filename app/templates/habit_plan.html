@@ -1,0 +1,45 @@
+{% extends 'base.html' %}
+{% block title %}{{ plan.name }} · Theo dõi thói quen{% endblock %}
+{% block content %}
+<div class="page-heading"><div><a class="back-link" href="{{ url_for('main.plans') }}">← Kế hoạch</a><p class="eyebrow">THEO DÕI THÓI QUEN{% if readonly %} · CHỈ XEM{% endif %}</p><h1>{{ plan.name }}</h1><p class="muted">{{ plan.description }}</p></div><a class="button" href="{{ url_for('main.schedule', filter=1, plan_id=plan.id, date=selected.isoformat()) }}">Xem trên lịch →</a></div>
+{% if plan.status != 'Đang hoạt động' %}<p class="notice">Kế hoạch đang tạm dừng. Lịch chung chỉ hiện kết quả đã ghi nhận. Bạn vẫn có thể xem và bổ sung lịch sử tại đây.</p>{% endif %}
+<div class="stats habit-stats">
+  {% for label, stats in [('Tuần đang xem', week_stats), ('Tháng đang xem', month_stats)] %}<section class="card stat"><span class="label">{{ label }}</span><strong>{{ stats.done }} / {{ stats.total }} <small>buổi</small></strong><span class="muted small">{{ stats.percent ~ '%' if stats.percent is not none else 'Chưa có buổi cần thực hiện' }} · {{ stats.pending }} chưa đánh dấu · {{ stats.missed }} không làm · {{ stats.skipped }} nghỉ</span></section>{% endfor %}
+</div>
+<p class="muted small">Tỷ lệ chỉ tính các buổi đến hạn tới hôm nay. Ngày không có lịch và buổi đã chọn nghỉ được loại khỏi tổng cần thực hiện.</p>
+<div class="two-col wide-left habit-layout"><div class="stack">
+  <section class="card"><h2>Kết quả ngày {{ selected.isoformat() }}</h2>
+    <form method="get" class="habit-date-nav"><label>Chọn ngày <input type="date" name="date" value="{{ selected.isoformat() }}" required></label><button class="button" type="submit">Xem</button><a href="{{ url_for(request.endpoint, plan_id=plan.id) }}">Hôm nay</a></form>
+    <div class="period-nav"><a href="{{ url_for(request.endpoint, plan_id=plan.id, date=previous.isoformat()) }}">← Ngày trước</a><a href="{{ url_for(request.endpoint, plan_id=plan.id, date=following.isoformat()) }}">Ngày sau →</a></div>
+    {% include '_habit_checkins.html' %}
+    {% if not day_habits %}<p class="empty">Ngày này không có việc theo dõi. Các ngày nghỉ theo lịch không ảnh hưởng tỷ lệ hoàn thành.</p>{% endif %}
+  </section>
+  <section class="card"><h2>Lịch sử trong tuần</h2>
+    {% if habits %}<div class="table-wrap"><table class="habit-week"><thead><tr><th>Việc</th>{% for day in week_days %}<th><a href="{{ url_for(request.endpoint, plan_id=plan.id, date=day.isoformat()) }}">{{ weekdays[day.weekday()] }}<br>{{ day.strftime('%d/%m') }}</a></th>{% endfor %}</tr></thead><tbody>
+    {% for habit in habits %}<tr><th scope="row">{{ habit.title }}</th>{% for day in week_days %}{% set entry = week_lookup.get((habit.id, day.isoformat())) %}<td>{% if entry %}<a class="habit-cell habit-{{ entry.status }}" href="{{ url_for(request.endpoint, plan_id=plan.id, date=day.isoformat(), _anchor='habit-' ~ habit.id) }}" aria-label="{{ habit.title }} {{ day.isoformat() }}: {{ habit_statuses[entry.status] }}" title="{{ habit_statuses[entry.status] }}">{{ {'done':'✓','missed':'×','skipped':'Nghỉ','pending':'…'}[entry.status] }}</a>{% else %}<span class="muted" title="Không có lịch">—</span>{% endif %}</td>{% endfor %}</tr>{% endfor %}
+    </tbody></table></div><p class="muted small">✓ Đã làm · × Không làm · … Chưa đánh dấu · — Không có lịch. Bấm một ô để xem hoặc sửa kết quả.</p>{% else %}<p class="empty">Thêm việc đầu tiên để bắt đầu theo dõi.</p>{% endif %}
+  </section>
+  <section class="card"><h2>Các việc theo dõi</h2>
+    {% for habit in habits %}<article class="habit-checkin"><strong>{{ habit.title }}</strong><p class="muted small">{{ habit.repeat_label }} · Từ {{ habit.start_date }}{% if habit.end_date %} đến {{ habit.end_date }}{% endif %}</p><p>{{ habit.streak }} buổi hoàn thành liên tiếp theo lịch</p>
+      {% if not readonly %}<details><summary>Đặt ngày kết thúc theo dõi</summary><form method="post" action="{{ url_for('main.end_habit', habit_id=habit.id) }}" class="form-grid"><label>Ngày cuối cần thực hiện <input type="date" name="end_date" value="{{ habit.end_date or (today.isoformat() if today.isoformat() >= habit.start_date else habit.start_date) }}" min="{{ habit.start_date }}" required></label><button class="button" type="submit">Lưu ngày kết thúc</button><p class="hint">Lịch sử được giữ lại. Để đổi lịch lặp, kết thúc việc cũ và tạo việc mới từ ngày áp dụng.</p></form></details>{% endif %}
+    </article>{% else %}<p class="empty">Chưa có việc theo dõi.</p>{% endfor %}
+  </section>
+</div>
+{% if not readonly %}<div class="stack">
+  <section class="card"><h2>Thêm việc theo dõi</h2><form method="post" action="{{ url_for('main.add_habit', plan_id=plan.id) }}" class="form-grid">
+    <label>Tên việc <input name="title" maxlength="200" placeholder="Ví dụ: Tập thể dục" required></label>
+    <label>Mô tả <textarea name="description" rows="2" maxlength="2000" placeholder="Mục tiêu hoặc cách thực hiện"></textarea></label>
+    <fieldset class="habit-weekdays"><legend>Lặp vào các ngày</legend>{% for label in weekdays %}<label><input type="checkbox" name="weekday" value="{{ loop.index0 }}" checked> {{ label }}</label>{% endfor %}</fieldset>
+    <label>Ngày bắt đầu <input type="date" name="start_date" value="{{ today.isoformat() }}" required></label>
+    <label>Ngày kết thúc (không bắt buộc) <input type="date" name="end_date"></label>
+    <button class="button button-dark" type="submit">Thêm việc</button>
+  </form></section>
+  <section class="card"><h2>Thông tin kế hoạch</h2><form method="post" action="{{ url_for('main.plan_detail', plan_id=plan.id) }}" class="form-grid">
+    <label>Tên kế hoạch <input name="name" value="{{ plan.name }}" required></label><label>Mô tả <textarea name="description" rows="2">{{ plan.description }}</textarea></label>
+    <input type="hidden" name="priority" value="{{ plan.priority }}"><label>Trạng thái <select name="status">{% for state in ['Đang hoạt động','Tạm dừng'] %}<option value="{{ state }}" {% if plan.status == state %}selected{% endif %}>{{ state }}</option>{% endfor %}</select></label><button class="button" type="submit">Lưu kế hoạch</button>
+  </form></section>
+  <section class="card"><h2>Chia sẻ chỉ xem</h2><form method="post" action="{{ url_for('main.share_plan', plan_id=plan.id) }}" class="form-grid"><label>Tên đăng nhập <input name="username" required></label><button class="button" type="submit">Chia sẻ kế hoạch</button></form>{% for user in shared_with %}<div class="course-item"><span>@{{ user.username }}</span><form method="post" action="{{ url_for('main.remove_plan_share', plan_id=plan.id, user_id=user.id) }}"><button class="button" type="submit">Thu hồi</button></form></div>{% endfor %}</section>
+  <section class="card"><h2>Xóa kế hoạch</h2><p class="muted">Xóa toàn bộ việc và kết quả theo dõi trong kế hoạch này. Bạn có thể xuất dữ liệu trước khi xóa.</p><form method="post" action="{{ url_for('main.delete_plan', plan_id=plan.id) }}" class="form-grid"><label>Nhập đúng tên kế hoạch <input name="name" required autocomplete="off"></label><button class="button button-danger" type="submit">Xóa kế hoạch</button></form></section>
+</div>{% endif %}
+</div>
+{% endblock %}

@@ -8,7 +8,7 @@ from flask import current_app, g
 from werkzeug.security import generate_password_hash
 
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS app_meta (
@@ -456,6 +456,7 @@ def delete_user_account(user_id, actor_id):
     course_scope = "SELECT id FROM courses WHERE owner_user_id=?"
     lecture_scope = f"SELECT id FROM lectures WHERE course_id IN ({course_scope})"
     plan_scope = "SELECT id FROM study_plans WHERE owner_user_id=?"
+    habit_scope = f"SELECT id FROM habits WHERE plan_id IN ({plan_scope})"
     owned = {
         "users": ("SELECT * FROM users WHERE id=?", 1),
         "courses": ("SELECT * FROM courses WHERE owner_user_id=?", 1),
@@ -463,6 +464,8 @@ def delete_user_account(user_id, actor_id):
         "lecture_tasks": (f"SELECT * FROM lecture_tasks WHERE lecture_id IN ({lecture_scope})", 1),
         "journals": (f"SELECT * FROM journals WHERE user_id=? OR course_id IN ({course_scope})", 2),
         "study_plans": ("SELECT * FROM study_plans WHERE owner_user_id=?", 1),
+        "habits": (f"SELECT * FROM habits WHERE plan_id IN ({plan_scope})", 1),
+        "habit_entries": (f"SELECT * FROM habit_entries WHERE habit_id IN ({habit_scope})", 1),
         "plan_courses": (f"""SELECT * FROM plan_courses WHERE plan_id IN ({plan_scope})
             OR course_id IN ({course_scope})""", 2),
         "plan_shares": (f"SELECT * FROM plan_shares WHERE user_id=? OR plan_id IN ({plan_scope})", 2),
@@ -487,7 +490,7 @@ def delete_user_account(user_id, actor_id):
                               json.dumps(snapshot, ensure_ascii=False, default=str),
                               actor_id)).lastrowid
     # Children first, so the order is valid whether or not foreign keys are enforced.
-    for table in ("journals", "plan_courses", "plan_shares", "missed_deadlines",
+    for table in ("habit_entries", "habits", "journals", "plan_courses", "plan_shares", "missed_deadlines",
                   "schedule_allocations", "schedule_events", "completion_events",
                   "lecture_tasks", "lectures", "courses", "study_plans",
                   "user_capacity_profiles", "user_capacity_overrides",
@@ -605,16 +608,50 @@ def migrate_multi_user():
 
 def migrate_database():
     db = get_db()
-    db.executescript(SCHEMA)
-    migrate_schedule()
-    migrate_multi_user()
-    migrate_vietnamese()
-    migrate_plans()
-    db.commit()
-    migrate_plan_name_scope()
+    # v3 -> v4 is strictly additive. Do not rerun legacy data transformations
+    # against a live multi-user database during this upgrade.
+    if stored_schema_version() != 3:
+        db.executescript(SCHEMA)
+        migrate_schedule()
+        migrate_multi_user()
+        migrate_vietnamese()
+        migrate_plans()
+        db.commit()
+        migrate_plan_name_scope()
+    migrate_habits()
     db.execute("""INSERT INTO app_meta (key, value) VALUES ('schema_version', ?)
         ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (str(SCHEMA_VERSION),))
     db.commit()
+    current_app.logger.info("Database schema ready: v%s", SCHEMA_VERSION)
+
+
+def migrate_habits():
+    """Add tracking without rebuilding existing plans or changing study data."""
+    db = get_db()
+    _add_column("study_plans", "kind",
+                "TEXT NOT NULL DEFAULT 'study' CHECK(kind IN ('study', 'habit'))")
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS habits (
+            id INTEGER PRIMARY KEY,
+            plan_id INTEGER NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            weekdays_json TEXT NOT NULL,
+            start_date TEXT NOT NULL,
+            end_date TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CHECK(end_date IS NULL OR end_date >= start_date)
+        );
+        CREATE INDEX IF NOT EXISTS habits_plan_idx ON habits(plan_id);
+        CREATE TABLE IF NOT EXISTS habit_entries (
+            habit_id INTEGER NOT NULL REFERENCES habits(id) ON DELETE CASCADE,
+            entry_date TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('done', 'missed', 'skipped')),
+            note TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(habit_id, entry_date)
+        );
+    """)
 
 
 def migrate_plans():

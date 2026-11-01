@@ -119,7 +119,8 @@ class MultiUserTest(unittest.TestCase):
                         DEFAULT 'Đang hoạt động', priority INTEGER NOT NULL DEFAULT 100,
                         created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                         owner_user_id INTEGER NOT NULL DEFAULT 1);
-                    INSERT INTO study_plans SELECT * FROM legacy;
+                    INSERT INTO study_plans
+                        SELECT id,name,description,status,priority,created_at,owner_user_id FROM legacy;
                     DROP TABLE legacy;
                 """)
                 db.execute("PRAGMA foreign_keys = ON")
