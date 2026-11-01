@@ -59,7 +59,7 @@ def parse_habit_plan(raw):
     seen = set()
     for index, item in enumerate(data["tasks"], 1):
         label = f"Phần việc {index}"
-        _fields(item, ("title", "description", "weekdays", "start_date", "end_date"), label)
+        _fields(item, ("title", "description", "weekdays", "start_date", "end_date", "excluded_dates"), label)
         days = item.get("weekdays")
         if (not isinstance(days, list) or not 1 <= len(days) <= 7
                 or any(type(d) is not int or not 0 <= d <= 6 for d in days)
@@ -67,13 +67,20 @@ def parse_habit_plan(raw):
             raise ValueError(f"{label}: weekdays là danh sách không trùng, từ 0 (Thứ 2) đến 6 (Chủ nhật)")
         start = _day(item.get("start_date"), f"{label}: ngày bắt đầu")
         end = _day(item["end_date"], f"{label}: ngày kết thúc") if item.get("end_date") is not None else None
+        excluded = item.get("excluded_dates", [])
+        if not isinstance(excluded, list) or len(excluded) > 366:
+            raise ValueError(f"{label}: excluded_dates phải là danh sách tối đa 366 ngày")
+        excluded = [_day(value, f"{label}: ngày loại trừ").isoformat() for value in excluded]
+        if len(set(excluded)) != len(excluded):
+            raise ValueError(f"{label}: danh sách ngày loại trừ không được trùng")
         if end and (end < start or not any((start + timedelta(days=i)).weekday() in days
-                                          for i in range(min((end-start).days + 1, 7)))):
-            raise ValueError(f"{label}: khoảng ngày phải có ít nhất một buổi đúng lịch lặp")
+                                          and (start + timedelta(days=i)).isoformat() not in excluded
+                                          for i in range(min((end-start).days + 1, 7 * (len(excluded) + 1))))):
+            raise ValueError(f"{label}: cần ít nhất một buổi đúng lịch lặp sau khi loại ngày nghỉ")
         task = {"title": _text(item.get("title"), f"{label}: tên việc", 200, True),
                 "description": _text(item.get("description", ""), f"{label}: mô tả", 2000),
                 "weekdays": sorted(days), "start_date": start.isoformat(),
-                "end_date": end.isoformat() if end else None}
+                "end_date": end.isoformat() if end else None, "excluded_dates": sorted(excluded)}
         if task_key(task) in seen:
             raise ValueError(f"{label}: trùng tên và lịch lặp với phần việc khác trong file")
         seen.add(task_key(task))
@@ -99,7 +106,13 @@ def inspect_habit_import(plan, plan_id=None):
                             (plan["name"], current_user_id())).fetchone()
         if target and target["kind"] != "habit":
             raise ValueError("Tên này đã dùng cho kế hoạch theo giờ. Hãy đổi tên trong JSON hoặc chọn kế hoạch thói quen đích")
-    existing = {task_key(h) for h in habits_for_plans([target["id"]])} if target else set()
+    existing = {}
+    for habit in habits_for_plans([target["id"]]) if target else []:
+        existing.setdefault(task_key(habit), []).append(habit)
+    for task in plan["tasks"]:
+        if any(h["excluded_dates"] != task["excluded_dates"] for h in existing.get(task_key(task), [])):
+            raise ValueError(f"Việc '{task['title']}' đã có nhưng khác ngày loại trừ. Import chỉ thêm việc; "
+                             "hãy kết thúc việc cũ và tạo việc mới từ ngày áp dụng để giữ lịch sử")
     tasks = [dict(t, exists=task_key(t) in existing,
                   repeat_label=", ".join(WEEKDAYS[d] for d in t["weekdays"])) for t in plan["tasks"]]
     new_count = sum(not t["exists"] for t in tasks)
@@ -119,9 +132,9 @@ def apply_habit_import(plan, plan_id=None):
             VALUES (?, ?, ?, 'habit')""", (plan["name"], plan["description"], current_user_id())).lastrowid
     for task in result["tasks"]:
         if not task["exists"]:
-            db.execute("""INSERT INTO habits (plan_id, title, description, weekdays_json, start_date, end_date)
-                VALUES (?, ?, ?, ?, ?, ?)""", (target_id, task["title"], task["description"],
-                json.dumps(task["weekdays"]), task["start_date"], task["end_date"]))
+            db.execute("""INSERT INTO habits (plan_id, title, description, weekdays_json, start_date, end_date,
+                excluded_dates_json) VALUES (?, ?, ?, ?, ?, ?, ?)""", (target_id, task["title"], task["description"],
+                json.dumps(task["weekdays"]), task["start_date"], task["end_date"], json.dumps(task["excluded_dates"])))
     return dict(result, target_id=target_id)
 
 
@@ -136,7 +149,7 @@ def owned_plan(plan_id):
 def plan_payload(plan):
     return {"schema_version": 1, "plan_type": "habit", "name": plan["name"],
             "description": plan["description"],
-            "tasks": [{key: h[key] for key in ("title", "description", "weekdays", "start_date", "end_date")}
+            "tasks": [{key: h[key] for key in ("title", "description", "weekdays", "start_date", "end_date", "excluded_dates")}
                       for h in habits_for_plans([plan["id"]])]}
 
 
@@ -168,7 +181,8 @@ def download_habit_ai_kit():
                "plans": [dict(plan_payload(p), status=p["status"]) for p in plans]}
     sample = {"schema_version": 1, "plan_type": "habit", "name": "Vận động mỗi ngày", "description": "",
               "tasks": [{"title": "Tập thể dục", "description": "Vận động theo mục tiêu cá nhân",
-                         "weekdays": list(range(7)), "start_date": today.isoformat(), "end_date": None}]}
+                         "weekdays": list(range(7)), "start_date": today.isoformat(), "end_date": None,
+                         "excluded_dates": []}]}
     files = {"PROMPT.md": (STATIC_DIR / "AI_HABIT_PROMPT.md").read_text(encoding="utf-8"),
              "habit_plan.schema.json": (STATIC_DIR / "habit_plan.schema.json").read_text(encoding="utf-8"),
              "sample_plan.json": _json(sample), "current_plans.json": _json(context)}

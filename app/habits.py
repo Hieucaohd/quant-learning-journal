@@ -27,6 +27,7 @@ def habits_for_plans(plan_ids):
     for row in rows:
         habit = dict(row)
         habit["weekdays"] = json.loads(habit["weekdays_json"])
+        habit["excluded_dates"] = json.loads(habit["excluded_dates_json"])
         habit["repeat_label"] = ("Mỗi ngày" if len(habit["weekdays"]) == 7 else
                                  ", ".join(WEEKDAYS[d] for d in habit["weekdays"]))
         result.append(habit)
@@ -36,7 +37,8 @@ def habits_for_plans(plan_ids):
 def is_due(habit, day):
     return (habit["start_date"] <= day.isoformat()
             and (not habit["end_date"] or day.isoformat() <= habit["end_date"])
-            and day.weekday() in habit["weekdays"])
+            and day.weekday() in habit["weekdays"]
+            and day.isoformat() not in habit.get("excluded_dates", []))
 
 
 def occurrences(plan_ids, start, end, active_only=False):
@@ -142,6 +144,7 @@ def owned_habit(habit_id):
         abort(404)
     habit = dict(row)
     habit["weekdays"] = json.loads(habit["weekdays_json"])
+    habit["excluded_dates"] = json.loads(habit["excluded_dates_json"])
     return habit
 
 

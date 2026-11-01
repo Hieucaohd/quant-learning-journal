@@ -20,7 +20,7 @@
     </tbody></table></div><p class="muted small">✓ Đã làm · × Không làm · … Chưa đánh dấu · — Không có lịch. Bấm một ô để xem hoặc sửa kết quả.</p>{% else %}<p class="empty">Thêm việc đầu tiên để bắt đầu theo dõi.</p>{% endif %}
   </section>
   <section class="card"><h2>Các việc theo dõi</h2>
-    {% for habit in habits %}<article class="habit-checkin"><strong>{{ habit.title }}</strong><p class="muted small">{{ habit.repeat_label }} · Từ {{ habit.start_date }}{% if habit.end_date %} đến {{ habit.end_date }}{% endif %}</p><p>{{ habit.streak }} buổi hoàn thành liên tiếp theo lịch</p>
+    {% for habit in habits %}<article class="habit-checkin"><strong>{{ habit.title }}</strong><p class="muted small">{{ habit.repeat_label }} · Từ {{ habit.start_date }}{% if habit.end_date %} đến {{ habit.end_date }}{% endif %}</p><p>{{ habit.streak }} buổi hoàn thành liên tiếp theo lịch</p>{% if habit.excluded_dates %}<p class="habit-note muted small"><strong>Ngày loại trừ ({{ habit.excluded_dates|length }}):</strong> {{ habit.excluded_dates|join(', ') }}</p>{% endif %}
       {% if not readonly %}<details><summary>Đặt ngày kết thúc theo dõi</summary><form method="post" action="{{ url_for('main.end_habit', habit_id=habit.id) }}" class="form-grid"><label>Ngày cuối cần thực hiện <input type="date" name="end_date" value="{{ habit.end_date or (today.isoformat() if today.isoformat() >= habit.start_date else habit.start_date) }}" min="{{ habit.start_date }}" required></label><button class="button" type="submit">Lưu ngày kết thúc</button><p class="hint">Lịch sử được giữ lại. Để đổi lịch lặp, kết thúc việc cũ và tạo việc mới từ ngày áp dụng.</p></form></details>{% endif %}
     </article>{% else %}<p class="empty">Chưa có việc theo dõi.</p>{% endfor %}
   </section>

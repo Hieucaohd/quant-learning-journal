@@ -8,7 +8,7 @@ from flask import current_app, g
 from werkzeug.security import generate_password_hash
 
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS app_meta (
@@ -608,9 +608,9 @@ def migrate_multi_user():
 
 def migrate_database():
     db = get_db()
-    # v3 -> v4 is strictly additive. Do not rerun legacy data transformations
+    # v3/v4 upgrades are strictly additive. Do not rerun legacy data transformations
     # against a live multi-user database during this upgrade.
-    if stored_schema_version() != 3:
+    if stored_schema_version() not in (3, 4):
         db.executescript(SCHEMA)
         migrate_schedule()
         migrate_multi_user()
@@ -619,6 +619,7 @@ def migrate_database():
         db.commit()
         migrate_plan_name_scope()
     migrate_habits()
+    _add_column("habits", "excluded_dates_json", "TEXT NOT NULL DEFAULT '[]'")
     db.execute("""INSERT INTO app_meta (key, value) VALUES ('schema_version', ?)
         ON CONFLICT(key) DO UPDATE SET value=excluded.value""", (str(SCHEMA_VERSION),))
     db.commit()

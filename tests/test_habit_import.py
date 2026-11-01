@@ -189,6 +189,9 @@ class HabitImportTest(unittest.TestCase):
                     {"start_date": "20261106"}, {"end_date": ""}, {"end_date": "2026-11-01"},
                     {"weekdays": [0], "start_date": "2026-11-06", "end_date": "2026-11-06"},
                     {"status": "done"}, {"hours": 1}, {"description": "a" * 2001}]
+        variants += [{"excluded_dates": value} for value in (
+            None, "2026-11-06", [True], ["2026-02-30"], ["20261106"],
+            ["2026-11-06", "2026-11-06"], ["2026-11-06"], ["2026-11-07"] * 367)]
         for changes in variants:
             with self.subTest(changes=changes):
                 payload = copy.deepcopy(self.payload)
@@ -203,6 +206,55 @@ class HabitImportTest(unittest.TestCase):
                         {**self.payload, "tasks": [self.payload["tasks"][0]] * 2}):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 parse_habit_plan(json.dumps(invalid))
+
+    def test_exclusions_survive_import_export_and_do_not_count_or_break_habit_streak(self):
+        payload = copy.deepcopy(self.payload)
+        payload["tasks"] = [payload["tasks"][0]]
+        payload["tasks"][0]["excluded_dates"] = ["2026-11-04"]
+        preview = self.submit("preview", payload).get_data(as_text=True)
+        self.assertIn("Ngày loại trừ (1)", preview)
+        self.assertIn("2026-11-04", preview)
+        self.assertEqual(self.rows("SELECT * FROM habits"), [])
+        self.submit(payload=payload)
+        habit = self.rows("SELECT * FROM habits")[0]
+        for day in ("2026-11-02", "2026-11-06", "2026-11-04"):
+            self.client.post(f"/habits/{habit['id']}/entries", data={"date": day, "status": "done"})
+        self.assertEqual([r["entry_date"] for r in self.rows("SELECT * FROM habit_entries ORDER BY entry_date")],
+                         ["2026-11-02", "2026-11-06"])
+        page, plan = self.context(f"/plans/{habit['plan_id']}")
+        self.assertIn("Ngày loại trừ (1)", page)
+        self.assertEqual(plan["habits"][0]["streak"], 2)
+        self.assertEqual(plan["week_stats"]["total"], 2)
+        self.assertEqual(plan["week_stats"]["percent"], 100)
+        _, schedule = self.context(f"/schedule?filter=1&plan_id={habit['plan_id']}&date=2026-11-04")
+        self.assertEqual(schedule["day_habits"], [])
+        self.assertNotIn("2026-11-04", schedule["habit_days"])
+        exported = self.client.get(f"/plans/{habit['plan_id']}/habits.json").get_json()
+        self.assertEqual(exported["tasks"][0]["excluded_dates"], ["2026-11-04"])
+        self.submit(payload=exported)
+        self.assertEqual(len(self.rows("SELECT * FROM habits")), 1)
+        with ZipFile(BytesIO(self.client.get(f"/import-plan/habit-ai-kit.zip?plan_id={habit['plan_id']}").data)) as archive:
+            context = json.loads(archive.read("ai-kit-thoi-quen/current_plans.json"))
+            self.assertEqual(context["plans"][0]["tasks"][0]["excluded_dates"], ["2026-11-04"])
+            self.assertIn("nguồn chính thức", archive.read("ai-kit-thoi-quen/PROMPT.md").decode())
+        with ZipFile(BytesIO(self.client.post("/export").data)) as archive:
+            data = json.loads(archive.read("learning_data.json"))
+            self.assertEqual(json.loads(data["habits"][0]["excluded_dates_json"]), ["2026-11-04"])
+
+    def test_changed_exclusions_reject_reimport_atomically_without_changing_history(self):
+        self.submit()
+        habit = self.rows("SELECT * FROM habits ORDER BY id")[0]
+        self.client.post(f"/habits/{habit['id']}/entries", data={"date": "2026-11-06", "status": "done"})
+        before = self.rows("SELECT * FROM habit_entries")
+        payload = copy.deepcopy(self.payload)
+        payload["tasks"][0]["excluded_dates"] = ["2026-11-06"]
+        payload["tasks"].append({"title": "New task", "weekdays": [4], "start_date": "2026-11-06"})
+        for mode in ("preview", "confirm"):
+            response = self.submit(mode, payload)
+            self.assertIn("khác ngày loại trừ", response.get_data(as_text=True))
+        self.assertEqual(self.rows("SELECT * FROM habit_entries"), before)
+        self.assertEqual(len(self.rows("SELECT * FROM habits")), 2)
+        self.assertTrue(all(row["excluded_dates_json"] == "[]" for row in self.rows("SELECT * FROM habits")))
 
 
 if __name__ == "__main__":

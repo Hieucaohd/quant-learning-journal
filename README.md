@@ -89,6 +89,15 @@ Tại **Kế hoạch → Tạo kế hoạch**, chọn **Theo dõi thói quen** �
 Schema v4 bổ sung loại kế hoạch và hai bảng `habits`, `habit_entries`. Nâng cấp từ v3 chỉ thêm
 cấu trúc mới; xem [hướng dẫn migration](DEPLOY_VERCEL.md#nâng-cấp-schema-database) khi dùng Turso.
 
+Schema v5 thêm `habits.excluded_dates_json` (mặc định `[]`), giữ nguyên các việc và lịch sử cũ.
+Prompt AI hỗ trợ `excluded_dates` cho từng phần việc: danh sách tối đa 366 ngày cụ thể
+YYYY-MM-DD cần nghỉ lễ/Tết hoặc nghỉ riêng. Các ngày này được liệt kê ở bước xem trước và
+trang kế hoạch; không tạo buổi trên lịch, không tính vào tỷ lệ và không ngắt chuỗi buổi của việc.
+File cũ không có trường này vẫn nhập được. Import cùng việc nhưng khác danh sách loại trừ
+sẽ báo lỗi; muốn đổi lịch, kết thúc việc cũ rồi tạo việc mới từ ngày áp dụng.
+AI được yêu cầu hỏi khu vực/năm/phạm vi nghỉ, kiểm tra nguồn chính thức và chờ bạn xác nhận
+danh sách trước khi xuất JSON. Ứng dụng không tự tra ngày lễ hay lặp lịch nghỉ sang năm sau.
+
 ## Lịch học và hạn hoàn thành
 
 - Mở **Lịch học** để xem lịch tháng, bấm một ngày để xem khóa học, bài học, nội dung và số giờ cần học trong ngày đó. Bộ lọc cho phép xem một kế hoạch hoặc nhiều kế hoạch cùng lúc. Lịch ghi rõ kế hoạch của từng việc và dự báo ngày kết thúc cho các khóa trong bộ lọc.

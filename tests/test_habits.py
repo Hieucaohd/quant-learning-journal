@@ -202,7 +202,32 @@ class HabitsTest(unittest.TestCase):
             db.execute("UPDATE app_meta SET value='3' WHERE key='schema_version'")
             db.commit()
             migrate_database()
-            self.assertEqual(db.execute("SELECT value FROM app_meta WHERE key='schema_version'").fetchone()[0], "4")
+            self.assertEqual(db.execute("SELECT value FROM app_meta WHERE key='schema_version'").fetchone()[0], "5")
+
+    def test_v4_upgrade_adds_empty_exclusions_without_changing_existing_data(self):
+        habit = self.add_habit()
+        self.record(habit, "2026-11-06", "done", note="Giữ nguyên")
+        with self.app.app_context():
+            db = get_db()
+            db.execute("ALTER TABLE habits DROP COLUMN excluded_dates_json")
+            db.execute("UPDATE app_meta SET value='4' WHERE key='schema_version'")
+            db.commit()
+            before = {table: [dict(r) for r in db.execute(f"SELECT * FROM {table}")]
+                      for table in ("habits", "habit_entries", "study_plans", "courses", "schedule_allocations")}
+            with patch("app.db.migrate_multi_user", side_effect=AssertionError("Legacy migration must not run")):
+                migrate_database()
+            self.assertEqual(db.execute("SELECT excluded_dates_json FROM habits").fetchone()[0], "[]")
+            for table, rows in before.items():
+                after = [dict(r) for r in db.execute(f"SELECT * FROM {table}")]
+                if table == "habits":
+                    for row in after:
+                        row.pop("excluded_dates_json")
+                self.assertEqual(rows, after)
+            db.execute("UPDATE app_meta SET value='4' WHERE key='schema_version'")
+            db.commit()
+            migrate_database()
+            self.assertEqual(db.execute("SELECT COUNT(*) FROM habits").fetchone()[0], 1)
+            self.assertEqual(db.execute("SELECT value FROM app_meta WHERE key='schema_version'").fetchone()[0], "5")
 
     def test_account_deletion_backs_up_and_removes_habit_results(self):
         with self.app.app_context():
@@ -233,7 +258,8 @@ class HabitsTest(unittest.TestCase):
             client.post("/plans/2/habits", data={"title":"Exercise", "weekday":["4"], "start_date":"2026-11-06"})
             payload = {"schema_version": 1, "plan_type": "habit", "name": "Remote habits", "tasks": [
                 {"title": "Exercise", "weekdays": [4], "start_date": "2026-11-06"},
-                {"title": "Weekly review", "weekdays": [4], "start_date": "2026-11-06"}]}
+                {"title": "Weekly review", "weekdays": [4], "start_date": "2026-11-06",
+                 "excluded_dates": ["2026-11-13"]}]}
             self.assertEqual(client.post("/import-plan", data={"import_type": "habit", "mode": "confirm",
                              "payload": json.dumps(payload)}).status_code, 302)
             for state in ("done", "skipped"):
@@ -241,6 +267,8 @@ class HabitsTest(unittest.TestCase):
             with app.app_context():
                 self.assertEqual(get_db().execute("SELECT status FROM habit_entries").fetchone()[0], "skipped")
                 self.assertEqual(get_db().execute("SELECT COUNT(*) FROM habits").fetchone()[0], 2)
+                self.assertEqual(json.loads(get_db().execute(
+                    "SELECT excluded_dates_json FROM habits WHERE title='Weekly review'").fetchone()[0]), ["2026-11-13"])
             del client, app
             gc.collect()
 
