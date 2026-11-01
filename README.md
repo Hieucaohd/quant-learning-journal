@@ -72,6 +72,19 @@ Tại **Kế hoạch → Tạo kế hoạch**, chọn **Theo dõi thói quen** �
   và bổ sung lịch sử theo lịch lặp đã cấu hình.
 - Có thể chia sẻ kế hoạch ở chế độ chỉ xem. Kết quả được đưa vào JSON và báo cáo Markdown khi xuất dữ liệu.
 - Thói quen không sử dụng quỹ giờ học và không làm thay đổi phân bổ hay hạn của khóa học.
+- Các việc này được tính trong **Hôm nay cần làm gì?** trên Tổng quan và Lịch, có liên kết mở
+  đúng phần việc trong kế hoạch. Kết quả **Đã làm** cũng tính vào chuỗi ngày có tiến độ chung.
+- Trong trang kế hoạch, chọn **Tải bộ prompt AI (.zip)** và gửi cả 4 tệp cho AI. Bộ này gồm
+  prompt/hướng dẫn, schema, ví dụ và các việc hiện có trong kế hoạch. Có thể tải bộ cho tất cả
+  kế hoạch thói quen của mình ở trang **Nhập kế hoạch**.
+- Chọn **Nhập phần việc từ AI** (hoặc **Nhập kế hoạch → Thêm việc theo dõi / thói quen**),
+  chọn kế hoạch đích, tải/dán JSON rồi xem trước và xác nhận. Có thể tạo kế hoạch mới theo tên
+  trong JSON; nếu đã có kế hoạch thói quen cùng tên, việc được thêm vào kế hoạch đó.
+  Hỗ trợ việc lặp và việc một lần (ngày bắt đầu = ngày kết thúc, chọn đúng thứ).
+- Import chỉ thêm việc, không ghi đè kết quả hay mô tả cũ. Việc trùng tên (không phân biệt
+  hoa/thường), các thứ và khoảng ngày được bỏ qua khi nhập lại. **Xuất JSON phần việc** xuất
+  cấu trúc kế hoạch để cung cấp ngữ cảnh cho AI; dùng chức năng xuất dữ liệu chung để sao lưu
+  cả lịch sử đánh dấu. Xem định dạng trong `app/static/habit_plan.schema.json`.
 
 Schema v4 bổ sung loại kế hoạch và hai bảng `habits`, `habit_entries`. Nâng cấp từ v3 chỉ thêm
 cấu trúc mới; xem [hướng dẫn migration](DEPLOY_VERCEL.md#nâng-cấp-schema-database) khi dùng Turso.

@@ -2,17 +2,14 @@
 {% block title %}Tổng quan · Lịch Kế Hoạch{% endblock %}
 {% block content %}
 <div class="page-heading"><div><p class="eyebrow">TỔNG QUAN KẾ HOẠCH</p><h1>Tổng quan</h1><p class="muted">Theo dõi tiến độ các kế hoạch và việc cần làm tiếp theo.</p></div><a class="button" href="{{ url_for('main.journal') }}">+ Ghi buổi học</a></div>
-<div class="stats">
+<div class="stats{% if has_habit_plans %} dashboard-with-habits{% endif %}">
   <section class="card stat"><span class="label">Đã hoàn thành</span><strong>{{ '%g'|format(done_hours) }} <small>/ {{ '%g'|format(planned_hours) }} giờ</small></strong><span class="muted">{{ done_percent }}% khối lượng của các khóa học{% if journal_hours %} · {{ '%g'|format(journal_hours) }} giờ ghi trong nhật ký{% endif %}</span></section>
   <section class="card stat"><span class="label">Ngày liên tiếp có tiến độ</span><strong>{{ streak }} <small>ngày</small></strong><span class="muted">Ngày có việc hoàn thành hoặc có nhật ký</span></section>
   <section class="card stat"><span class="label">Tuần này</span><strong>{{ '%g'|format(week.hours) }} <small>giờ</small></strong><span class="muted">{{ week['items']|length }} việc hoàn thành · quỹ thời gian tuần này {{ '%g'|format(week_capacity) }} giờ</span></section>
+  {% if has_habit_plans %}<section class="card stat"><span class="label">Việc theo dõi tuần này</span><strong>{{ habit_week.done }} <small>/ {{ habit_week.total }} buổi</small></strong><span class="muted">{{ habit_week.pending }} chưa đánh dấu · {{ habit_week.missed }} không làm · {{ habit_week.skipped }} nghỉ</span></section>{% endif %}
 </div>
 <div class="two-col">
-{% if today_habits %}
-  <section class="card"><h2>Thói quen hôm nay</h2><p class="muted small">Tuần này: {{ habit_week.done }}/{{ habit_week.total }} buổi đến hạn đã hoàn thành · {{ habit_week.skipped }} buổi nghỉ.</p>
-    {% for item in today_habits %}<a class="course-item" href="{{ url_for('main.plan_detail', plan_id=item.plan_id, date=item.date, _anchor='habit-' ~ item.id) }}"><span><strong>{{ item.title }}</strong><small>{{ item.plan_name }}</small></span><span class="pill habit-{{ item.status }}">{{ habit_statuses[item.status] }}</span></a>{% endfor %}
-  </section>
-{% endif %}
+
   <section class="card">
     <div class="section-heading"><h2>Khóa học hiện tại</h2><a href="{{ url_for('main.courses') }}">Tất cả khóa học →</a></div>
     {% if current %}
@@ -29,7 +26,14 @@
     {% if plans %}<p class="plan">{{ plans[0].next_plan }}</p><p class="muted small">Từ ngày {{ plans[0].date }} · {{ plans[0].course_name }}</p>{% else %}<p class="empty">Bước tiếp theo sẽ hiện ở đây sau khi bạn ghi một buổi học.</p>{% endif %}
   </section>
 </div>
-<section class="card"><div class="section-heading"><h2>Hôm nay cần làm gì?</h2><a href="{{ url_for('main.schedule') }}">Mở lịch →</a></div>{% if today_plan %}<ul>{% for task in today_plan %}<li>{{ task.course_name }} · {% if task.lecture_id %}Bài {{ task.lecture_number }}{% if task.part_title %} · {{ task.part_title }}{% endif %}{% else %}Nội dung khóa học{% endif %} · {{ '%g'|format(task.hours) }} giờ{% if task.part_content or task.content %} · {{ task.part_content or task.content }}{% endif %}</li>{% endfor %}</ul>{% else %}<p class="empty">Hôm nay chưa có việc học được lên lịch.</p>{% endif %}<p class="muted small">Dự kiến xong toàn bộ lộ trình: {{ projected_finish or 'Chưa đủ dữ liệu' }}</p></section>
+<section class="card"><div class="section-heading"><h2>Hôm nay cần làm gì?</h2><a href="{{ url_for('main.schedule') }}#day-detail">Mở lịch →</a></div>
+  {% if today_habits %}<h3>Việc theo dõi theo ngày</h3><p class="muted small">Tuần này: {{ habit_week.done }}/{{ habit_week.total }} buổi đến hạn đã hoàn thành · {{ habit_week.skipped }} buổi nghỉ.</p>
+    {% for item in today_habits %}<a class="course-item" href="{{ url_for('main.plan_detail', plan_id=item.plan_id, date=item.date, _anchor='habit-' ~ item.id) }}"><span><strong>{{ item.title }}</strong><small>{{ item.plan_name }}</small></span><span class="pill habit-{{ item.status }}">{{ habit_statuses[item.status] }}</span></a>{% endfor %}
+  {% endif %}
+  {% if today_plan %}<h3>Việc theo giờ</h3><ul>{% for task in today_plan %}<li>{{ task.course_name }} · {% if task.lecture_id %}Bài {{ task.lecture_number }}{% if task.part_title %} · {{ task.part_title }}{% endif %}{% else %}Nội dung khóa học{% endif %} · {{ '%g'|format(task.hours) }} giờ{% if task.part_content or task.content %} · {{ task.part_content or task.content }}{% endif %}</li>{% endfor %}</ul>{% endif %}
+  {% if not today_plan and not today_habits %}<p class="empty">Hôm nay chưa có việc được lên lịch.</p>{% endif %}
+  {% if courses %}<p class="muted small">Dự kiến xong các khóa học: {{ projected_finish or 'Chưa đủ dữ liệu' }}</p>{% endif %}
+</section>
 <section class="card"><div class="section-heading"><h2>Buổi học gần đây</h2><a href="{{ url_for('main.journal') }}">Xem nhật ký →</a></div>
   {% if recent %}<div class="table-wrap"><table><thead><tr><th>Ngày</th><th>Khóa học</th><th>Chủ đề</th><th>Số giờ</th><th>Mức độ hiểu</th></tr></thead><tbody>{% for entry in recent %}<tr><td>{{ entry.date }}</td><td>{{ entry.course_name }}</td><td>{{ entry.topic or '—' }}</td><td>{{ '%g'|format(entry.hours) }}</td><td>{{ entry.understanding or '—' }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p class="empty">Chưa có buổi học nào.</p>{% endif %}
 </section>

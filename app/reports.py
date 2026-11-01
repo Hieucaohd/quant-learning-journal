@@ -211,7 +211,9 @@ def build_export(export_dir):
                        ("Đã hoàn thành" if course["status"] == "Hoàn thành" else
                         projected.get(course["id"], "Chưa đủ dữ liệu")))
 
-    streak_days = streak(journals + completed_work())
+    habit_progress = [{"date": entry["entry_date"]} for entry in data["habit_entries"]
+                      if entry["status"] == "done"]
+    streak_days = streak(journals + completed_work() + habit_progress)
     progress = ["# Báo cáo tiến độ", "", hours_line,
                 f"Số ngày liên tiếp có tiến độ: {streak_days}", "", "## Tiến độ bài học", ""]
     for course in courses:

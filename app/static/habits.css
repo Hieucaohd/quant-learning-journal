@@ -24,6 +24,9 @@
 .calendar-habits { display: block; color: #6b4f91; font-size: 11px; margin-top: 5px; }
 .habit-checkin-form { margin-top: 12px; }
 .habit-checkin .button { white-space: normal; }
+@media (min-width: 801px) {
+  .dashboard-with-habits { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @media (max-width: 540px) {
   .habit-stats { grid-template-columns: 1fr; }
   .habit-checkin .section-heading { align-items: start; flex-direction: column; }

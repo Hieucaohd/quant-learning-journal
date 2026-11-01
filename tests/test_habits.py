@@ -223,7 +223,7 @@ class HabitsTest(unittest.TestCase):
         self.assertEqual(snapshot["habits"][0]["title"], "Walk")
         self.assertEqual(snapshot["habit_entries"][0]["status"], "done")
 
-    def test_libsql_backend_can_record_and_update_habits(self):
+    def test_libsql_backend_can_import_record_and_update_habits(self):
         with tempfile.TemporaryDirectory() as directory:
             config = dict(self.config, TURSO_DATABASE_URL=str(Path(directory)/"remote.db"),
                           TURSO_AUTH_TOKEN="test", AUTH_DISABLED=True)
@@ -231,10 +231,16 @@ class HabitsTest(unittest.TestCase):
             client = app.test_client()
             client.post("/plans", data={"name":"Remote habits", "kind":"habit"})
             client.post("/plans/2/habits", data={"title":"Exercise", "weekday":["4"], "start_date":"2026-11-06"})
+            payload = {"schema_version": 1, "plan_type": "habit", "name": "Remote habits", "tasks": [
+                {"title": "Exercise", "weekdays": [4], "start_date": "2026-11-06"},
+                {"title": "Weekly review", "weekdays": [4], "start_date": "2026-11-06"}]}
+            self.assertEqual(client.post("/import-plan", data={"import_type": "habit", "mode": "confirm",
+                             "payload": json.dumps(payload)}).status_code, 302)
             for state in ("done", "skipped"):
                 self.assertEqual(client.post("/habits/1/entries", data={"date":"2026-11-06", "status":state}).status_code, 302)
             with app.app_context():
                 self.assertEqual(get_db().execute("SELECT status FROM habit_entries").fetchone()[0], "skipped")
+                self.assertEqual(get_db().execute("SELECT COUNT(*) FROM habits").fetchone()[0], 2)
             del client, app
             gc.collect()
 

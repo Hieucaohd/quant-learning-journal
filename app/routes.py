@@ -13,7 +13,7 @@ from flask import (Blueprint, abort, current_app, flash, g, redirect, render_tem
 
 from .ai_kit import ai_kit_files, ai_prompt, course_replan_kit_files
 from .auth import current_user_id
-from . import habits
+from . import habits, habit_import
 from .course_transfer import (apply_course_overwrite, inspect_course_overwrite,
                               parse_course_snapshot, snapshot_json)
 from .db import enroll_catalog_course, get_db, sync_lecture_hours
@@ -27,6 +27,7 @@ from .plan_import import TASK_TYPES, apply_plan, inspect_plan, parse_plan
 
 bp = Blueprint("main", __name__)
 habits.register_routes(bp)
+habit_import.register_routes(bp)
 STATUSES = ("Chưa bắt đầu", "Đang học", "Hoàn thành", "Cần ôn tập")
 DIFFICULTIES = ("Dễ", "Trung bình", "Khó")
 
@@ -278,14 +279,17 @@ def dashboard():
                       if p["kind"] == "habit" and p["status"] == "Đang hoạt động"]
     today_habits = habits.occurrences(habit_plan_ids, today, today)
     habit_week = habits.summary(habits.occurrences(habit_plan_ids, week_days[0], week_days[-1]))
+    habit_progress = [{"date": entry["entry_date"]} for entry in data["habit_entries"]
+                      if entry["status"] == "done"]
     return render_template("dashboard.html", current=current, courses=courses,
                            today_habits=today_habits, habit_week=habit_week,
+                           has_habit_plans=bool(habit_plan_ids),
                            habit_statuses=habits.STATUSES,
                            recent=list(reversed(journals[-7:])),
                            planned_hours=planned_hours, done_hours=done_hours,
                            done_percent=round(100 * done_hours / planned_hours) if planned_hours else 0,
                            journal_hours=round(sum(j["hours"] for j in journals), 2),
-                           streak=streak(journals + work), week=week,
+                           streak=streak(journals + work + habit_progress), week=week,
                            week_capacity=round(sum(capacity_on(day) for day in week_days), 2),
                            today_plan=day_plan(today),
                            projected_finish=max(remaining_dates) if remaining_dates and not missing else None)
@@ -418,6 +422,9 @@ def schedule():
     pending = [item for item in pending_missed()
                if item["course_id"] in selected_course_ids]
     today_tasks = day_plan(today, selected_ids)
+    today_habits = habits.occurrences(
+        [pid for pid in selected_ids if plan_by_id[pid]["owner_user_id"] == user_id],
+        today, today, active_only=True)
     day_tasks = day_plan(selected, selected_ids, include_others=True)
     calendar_habits = habits.occurrences(selected_ids, calendar_weeks[0][0],
                                          calendar_weeks[-1][-1], active_only=True)
@@ -425,6 +432,8 @@ def schedule():
     for item in calendar_habits:
         habit_days.setdefault(item["date"], []).append(item)
     return render_template("schedule.html", selected=selected, today=today,
+                           today_habits=today_habits,
+                           has_habit_plans=any(plan_by_id[pid]["kind"] == "habit" for pid in selected_ids),
                            habit_days=habit_days, day_habits=habit_days.get(selected.isoformat(), []),
                            habit_statuses=habits.STATUSES,
                            month_start=month_start, calendar_weeks=calendar_weeks,
@@ -609,8 +618,9 @@ def import_plan():
     preview = None
     raw = ""
     source_name = ""
-    import_type = request.form.get("import_type", "merge")
+    import_type = request.form.get("import_type", request.args.get("import_type", "merge"))
     selected_plan_id = request.form.get("plan_id", "")
+    habit_plan_id = request.form.get("habit_plan_id", request.args.get("habit_plan_id", ""))
     if request.method == "POST":
         try:
             upload = request.files.get("plan_file")
@@ -627,7 +637,11 @@ def import_plan():
                 source_name = request.form.get("source_name", "").strip()
             if not raw:
                 raise ValueError("Hãy chọn file JSON hoặc dán nội dung JSON")
-            if import_type == "overwrite_course":
+            if import_type == "habit":
+                plan = habit_import.parse_habit_plan(raw)
+                counts = habit_import.inspect_habit_import(plan, habit_plan_id)
+                preview = {**plan, **counts}
+            elif import_type == "overwrite_course":
                 try:
                     selected_plan_id = int(selected_plan_id)
                 except (TypeError, ValueError) as exc:
@@ -642,7 +656,12 @@ def import_plan():
             else:
                 raise ValueError("Chế độ import không hợp lệ")
             if request.form.get("mode") == "confirm":
-                if import_type == "overwrite_course":
+                if import_type == "habit":
+                    result = habit_import.apply_habit_import(plan, habit_plan_id)
+                    get_db().commit()
+                    flash(f"Đã thêm {result['new_tasks']} việc theo dõi; bỏ qua {result['existing_tasks']} việc đã có.", "success")
+                    return redirect(url_for("main.plan_detail", plan_id=result["target_id"]))
+                elif import_type == "overwrite_course":
                     target_plan_ids = request.form.getlist("target_plan_id")
                     target_plan_ids = [int(value) for value in target_plan_ids]
                     selectable_ids = {item["id"] for item in counts["affected_plans"]
@@ -676,6 +695,9 @@ def import_plan():
         WHERE owner_user_id=? AND status='Đang hoạt động' AND kind='study' ORDER BY priority, id""",
                                     (current_user_id(),)).fetchall()
     return render_template("import_plan.html", preview=preview, raw=raw,
+                           habit_plan_id=str(habit_plan_id),
+                           habit_plans=get_db().execute("""SELECT id, name, status FROM study_plans
+                               WHERE owner_user_id=? AND kind='habit' ORDER BY id""", (current_user_id(),)).fetchall(),
                            source_name=source_name, task_types=TASK_TYPES,
                            ai_prompt=ai_prompt(current_user_id()), import_type=import_type,
                            selected_plan_id=str(selected_plan_id), active_plans=active_plans)

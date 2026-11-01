@@ -26,6 +26,7 @@
   </section>
 </div>
 {% if not readonly %}<div class="stack">
+  <section class="card"><h2>Tạo phần việc bằng AI</h2><p>Đưa mục tiêu và lịch thực hiện cho AI, rồi nhập các phần việc vào kế hoạch này.</p><div class="habit-actions"><a class="button button-dark" href="{{ url_for('main.download_habit_ai_kit', plan_id=plan.id) }}">Tải bộ prompt AI (.zip)</a><a class="button" href="{{ url_for('main.import_plan', import_type='habit', habit_plan_id=plan.id) }}">Nhập phần việc từ AI</a><a class="button" href="{{ url_for('main.download_habit_plan', plan_id=plan.id) }}">Xuất JSON phần việc</a></div><p class="muted small">Bộ prompt kèm các việc đã có. Xem trước và xác nhận để thêm việc lên lịch; kết quả đánh dấu được giữ nguyên.</p></section>
   <section class="card"><h2>Thêm việc theo dõi</h2><form method="post" action="{{ url_for('main.add_habit', plan_id=plan.id) }}" class="form-grid">
     <label>Tên việc <input name="title" maxlength="200" placeholder="Ví dụ: Tập thể dục" required></label>
     <label>Mô tả <textarea name="description" rows="2" maxlength="2000" placeholder="Mục tiêu hoặc cách thực hiện"></textarea></label>

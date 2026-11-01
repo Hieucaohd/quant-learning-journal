@@ -2,6 +2,7 @@
 <article class="habit-checkin" id="habit-{{ item.id }}">
   <div class="section-heading"><div><strong>{{ item.title }}</strong><p class="muted small">{{ item.plan_name }}{% if item.owner_user_id != g.user.id %} · @{{ item.owner_name }} · chỉ xem{% endif %}</p></div><span class="pill habit-{{ item.status }}">{{ habit_statuses[item.status] }}</span></div>
   {% if item.description %}<p class="habit-note">{{ item.description }}</p>{% endif %}
+  {% if habit_return|default('plan') == 'schedule' %}<p><a class="button button-dark" href="{{ url_for('main.plan_detail' if item.owner_user_id == g.user.id else 'main.shared_plan', plan_id=item.plan_id, date=item.date, _anchor='habit-' ~ item.id) }}">Mở phần việc trong kế hoạch →</a></p>{% endif %}
   {% if item.editable and not readonly|default(false) %}
   <form method="post" action="{{ url_for('main.record_habit', habit_id=item.id) }}" class="form-grid habit-checkin-form">
     <input type="hidden" name="date" value="{{ item.date }}">
